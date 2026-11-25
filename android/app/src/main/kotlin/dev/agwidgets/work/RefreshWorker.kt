@@ -15,6 +15,7 @@ import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.NtfyClient
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeClient
+import dev.agwidgets.data.ZCodeStatus
 import dev.agwidgets.notify.Notifier
 import dev.agwidgets.widget.LimitsWidget
 import java.util.concurrent.TimeUnit
@@ -55,11 +56,27 @@ class RefreshWorker(
         val zcodeToken = StatusStore.getZCodeToken(applicationContext)
         if (zcodeToken.isNotBlank()) {
             val deviceMid = StatusStore.getOrCreateDeviceMid(applicationContext)
-            val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid)
+            val seq = StatusStore.nextZCodeSeq(applicationContext)
+            val previous = StatusStore.getDirectZCode(applicationContext)
+            val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid, seq, previous)
             zRes.onSuccess { zStatus ->
                 val (prevZ, currZ) = StatusStore.saveDirectZCode(applicationContext, zStatus)
                 Notifier.checkZCodeCouponTransition(applicationContext, prevZ, currZ)
-            }.onFailure {
+            }.onFailure { err ->
+                val nowIso = java.time.Instant.now().toString()
+                val fallback = previous ?: ZCodeStatus(running = true, couponVisible = false, method = "api")
+                val failed = fallback.copy(
+                    running = true,
+                    method = "api",
+                    authOk = null,
+                    networkError = true,
+                    couponVisible = false,
+                    couponState = ZCodeStatus.COUPON_UNKNOWN,
+                    errorKind = "network",
+                    checkedAt = nowIso,
+                )
+                StatusStore.saveDirectZCode(applicationContext, failed)
+                StatusStore.saveError(applicationContext, err.message ?: "Ошибка сети ZCode")
                 anyNetworkFailure = true
             }
         }
@@ -95,9 +112,13 @@ class RefreshWorker(
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 IMMEDIATE_WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 req
             )
+        }
+
+        fun cancelPeriodic(context: Context) {
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(PERIODIC_WORK_NAME)
         }
     }
 }
