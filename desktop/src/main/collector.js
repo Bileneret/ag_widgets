@@ -230,7 +230,7 @@ async function waitForIdle() {
 function runCollector({ force = true, waitIfBusy = false } = {}) {
   if (running) {
     if (!waitIfBusy) return Promise.resolve({ ok: true, busy: true });
-    return waitForIdle().then(() => runCollector({ force, waitIfBusy: false }));
+    return waitForIdle().then(() => runCollector({ force, waitIfBusy: true }));
   }
 
   running = true;

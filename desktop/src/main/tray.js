@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 const { app, Menu, Tray, nativeImage, shell } = require('electron');
 const { APP_DIR, STATUS_PATH } = require('./paths');
-const { readJson } = require('./storage');
+const { readAllState, readJson } = require('./storage');
 const zcodeAuth = require('./zcode-auth');
-const { getWindow, hideWindow, setAlwaysOnTop, showWindow } = require('./window');
+const { getWindow, hideWindow, pushState, setAlwaysOnTop, showWindow } = require('./window');
 
 const APP_ROOT = path.join(__dirname, '..', '..');
 const ASSETS_DIR = path.join(APP_ROOT, 'assets');
@@ -80,7 +80,10 @@ function buildMenu() {
       click: () => {
         Promise.resolve()
           .then(() => zcodeAuth.zcodeLogout())
-          .then(() => refreshMenu())
+          .then(() => {
+            pushState(readAllState());
+            refreshMenu();
+          })
           .catch(() => {});
       },
     });
@@ -112,4 +115,4 @@ function showContextMenu() {
   buildMenu().popup({ window });
 }
 
-module.exports = { createTray, showContextMenu };
+module.exports = { createTray, showContextMenu, refreshMenu };

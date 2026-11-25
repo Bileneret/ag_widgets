@@ -169,5 +169,11 @@ describe('module exports', () => {
     assert.equal(typeof fmt.shortAge, 'function', 'shortAge must be exported');
     assert.equal(fmt.clamp(5, 0, 3), 3, 'clamp must cap at max');
     assert.equal(fmt.clamp(-1, 0, 3), 0, 'clamp must floor at min');
+    // Antigravity CLI emits Unix epoch 0 for unused 100% buckets (e.g. 3p-5h).
+    assert.equal(
+      fmt.formatCountdown('1970-01-01T00:00:00Z'),
+      '',
+      'epoch-zero sentinel must not render as "сброс сейчас"',
+    );
   });
 });

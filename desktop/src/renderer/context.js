@@ -218,7 +218,8 @@
   }
 
   function renderEmpty(info) {
-    const hasChat = Boolean(info.activeChat && info.activeChat.title);
+    const hasChat = Boolean(info.activeChat && info.activeChat.id);
+    const chatTitle = info.activeChat && info.activeChat.title ? info.activeChat.title : '';
     document.getElementById('ctx-tokens').textContent = '—';
     document.getElementById('ctx-token-sub').textContent = 'токенов';
     document.getElementById('ctx-model').textContent = hasChat ? 'Ожидание ответа' : 'Ожидание диалога';
@@ -241,8 +242,8 @@
     document.getElementById('ring-satellite').style.opacity = '0';
 
     const material = document.getElementById('ctx-material');
-    material.textContent = hasChat ? info.activeChat.title.toUpperCase() : 'НЕТ СЕССИИ';
-    material.title = info.activeChat ? info.activeChat.title : '';
+    material.textContent = hasChat ? (chatTitle || 'НОВЫЙ ЧАТ').toUpperCase() : 'НЕТ СЕССИИ';
+    material.title = chatTitle;
 
     const recent = document.getElementById('ctx-recent');
     recent.innerHTML = '';

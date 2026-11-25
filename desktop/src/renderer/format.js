@@ -57,7 +57,7 @@
   function formatCountdown(iso) {
     if (!iso) return '';
     const target = new Date(iso);
-    if (Number.isNaN(target.getTime())) return '';
+    if (Number.isNaN(target.getTime()) || target.getTime() <= 0) return '';
     const diffSec = Math.max(0, Math.floor((target.getTime() - Date.now()) / 1000));
     const hhmm = target.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     if (diffSec <= 0) return `сброс сейчас · ${hhmm}`;

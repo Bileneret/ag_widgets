@@ -6,7 +6,7 @@ const { readAllState } = require('./storage');
 const collector = require('./collector');
 const zcodeAuth = require('./zcode-auth');
 const windowApi = require('./window');
-const { showContextMenu } = require('./tray');
+const { refreshMenu, showContextMenu } = require('./tray');
 
 const ZCODE_WEB_URL = 'https://zcode.z.ai/';
 
@@ -42,9 +42,25 @@ function registerIpc() {
     }),
   );
 
-  ipcMain.handle('agw:zcode-login', fromMainWindow(() => zcodeAuth.zcodeLogin()));
+  ipcMain.handle(
+    'agw:zcode-login',
+    fromMainWindow(async () => {
+      const result = await zcodeAuth.zcodeLogin();
+      windowApi.pushState(readAllState());
+      refreshMenu();
+      return result;
+    }),
+  );
   ipcMain.handle('agw:zcode-cancel', fromMainWindow(() => zcodeAuth.cancelZCodeLogin()));
-  ipcMain.handle('agw:zcode-logout', fromMainWindow(() => zcodeAuth.zcodeLogout()));
+  ipcMain.handle(
+    'agw:zcode-logout',
+    fromMainWindow(async () => {
+      const result = await zcodeAuth.zcodeLogout();
+      windowApi.pushState(readAllState());
+      refreshMenu();
+      return result;
+    }),
+  );
 
   ipcMain.handle('agw:quit', fromMainWindow(() => app.quit()));
   ipcMain.handle('agw:menu', fromMainWindow(() => showContextMenu()));
