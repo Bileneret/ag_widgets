@@ -120,12 +120,9 @@ function createWindow() {
     icon: path.join(ASSETS_DIR, 'icon-256.png'),
     alwaysOnTop: saved.alwaysOnTop,
     hasShadow: true,
-    // No `backgroundMaterial: 'acrylic'`: it only works on Windows 11 and, with a
-    // transparent base color, renders an opaque black frame on other systems.
-    // A solid base keeps the window correct everywhere; `.widget-shell` in CSS
-    // provides the translucent cards.
     transparent: false,
-    backgroundColor: '#0a0e13',
+    backgroundColor: '#00000000',
+    backgroundMaterial: 'acrylic',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', '..', 'preload.js'),
@@ -179,12 +176,8 @@ function createWindow() {
     }, 250);
   });
 
-  // The × button quits through `agw:quit`; OS closes (Alt+F4) go to the tray.
-  mainWindow.on('close', (event) => {
-    if (app.isQuitting) return;
-    event.preventDefault();
-    mainWindow.hide();
-  });
+  // Closing the window (× / Alt+F4 / OS close) quits; use the minimize button
+  // or the tray menu to keep the process alive.
 
   // A frozen renderer must not leave an unusable frame forever: give it 15s to
   // recover before quitting, and cancel the timer on `responsive`.

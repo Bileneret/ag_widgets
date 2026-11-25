@@ -26,9 +26,6 @@ if (!gotLock) {
   app.on('before-quit', () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    // `window.js` keeps the widget in the tray on close; this flag tells it to
-    // destroy the window instead of hiding it while the app is quitting.
-    app.isQuitting = true;
 
     if (typeof stopWatching === 'function') {
       try {
@@ -49,7 +46,7 @@ if (!gotLock) {
     }
   });
 
-  // The widget lives in the tray, so this only fires after a real destroy.
+  // Closing the widget window quits the app; the tray menu keeps it alive.
   app.on('window-all-closed', () => app.quit());
 
   app.whenReady().then(() => {
