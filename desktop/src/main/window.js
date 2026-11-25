@@ -1,18 +1,22 @@
 'use strict';
 
 const path = require('path');
-const { app, BrowserWindow, screen } = require('electron');
-const { WINDOW_STATE_PATH } = require('./paths');
+const { app, BrowserWindow, screen, session } = require('electron');
+const { windowStatePath } = require('./paths');
 const { readAllState, readJson, writeJsonAtomic } = require('./storage');
+const { logError } = require('./logger');
 
 const WINDOW_WIDTH = 400;
 const WINDOW_HEIGHT = 640;
+/** Minimum slice of the title bar that must stay on screen while dragging. */
+const TITLEBAR_GRAB = 48;
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 
 let mainWindow = null;
+let moveSaveTimer = null;
 
 function loadWindowState() {
-  const saved = readJson(WINDOW_STATE_PATH);
+  const saved = readJson(windowStatePath());
   if (!saved) return { x: undefined, y: undefined, alwaysOnTop: true };
   return {
     x: typeof saved.x === 'number' ? saved.x : undefined,
@@ -21,17 +25,40 @@ function loadWindowState() {
   };
 }
 
+/** Persist window state; filesystem hiccups must never take the app down. */
 function saveWindowState(extra = {}) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const previous = loadWindowState();
-  const [x, y] = mainWindow.getPosition();
-  writeJsonAtomic(WINDOW_STATE_PATH, {
-    ...previous,
-    ...extra,
-    x,
-    y,
-    alwaysOnTop: mainWindow.isAlwaysOnTop(),
-  });
+  const window = getWindow();
+  if (!window) return;
+  try {
+    const previous = loadWindowState();
+    const [x, y] = window.getPosition();
+    writeJsonAtomic(windowStatePath(), {
+      ...previous,
+      ...extra,
+      x,
+      y,
+      alwaysOnTop: window.isAlwaysOnTop(),
+    });
+  } catch (error) {
+    logError('window-state', error);
+  }
+}
+
+function clearPendingMoveSave() {
+  if (!moveSaveTimer) return;
+  clearTimeout(moveSaveTimer);
+  moveSaveTimer = null;
+}
+
+/** Persist the current bounds immediately, skipping the `moved` debounce. */
+function saveCurrentWindowBounds() {
+  clearPendingMoveSave();
+  saveWindowState();
+}
+
+/** Idempotent flush for `before-quit`; safe when the window is already gone. */
+function flushWindowState() {
+  saveCurrentWindowBounds();
 }
 
 function isPositionOnAnyDisplay(x, y, width, height) {
@@ -93,9 +120,12 @@ function createWindow() {
     icon: path.join(ASSETS_DIR, 'icon-256.png'),
     alwaysOnTop: saved.alwaysOnTop,
     hasShadow: true,
+    // No `backgroundMaterial: 'acrylic'`: it only works on Windows 11 and, with a
+    // transparent base color, renders an opaque black frame on other systems.
+    // A solid base keeps the window correct everywhere; `.widget-shell` in CSS
+    // provides the translucent cards.
     transparent: false,
-    backgroundColor: '#00000000',
-    backgroundMaterial: 'acrylic',
+    backgroundColor: '#0a0e13',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', '..', 'preload.js'),
@@ -106,6 +136,15 @@ function createWindow() {
   });
 
   if (saved.alwaysOnTop) mainWindow.setAlwaysOnTop(true, 'floating');
+
+  // Hardening: the widget never navigates away, opens no child windows and
+  // grants no permissions to web content.
+  mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) =>
+    callback(false),
+  );
+  session.defaultSession.setPermissionCheckHandler(() => false);
 
   // The widget is a fixed-size surface: dragging or a DPI change must not resize it.
   mainWindow.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -127,18 +166,45 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    pushState(readAllState());
   });
 
-  let moveSaveTimer = null;
+  // Re-read state the moment the widget becomes visible again (tray restore).
+  mainWindow.on('show', () => pushState(readAllState()));
+
   mainWindow.on('moved', () => {
     clearTimeout(moveSaveTimer);
-    moveSaveTimer = setTimeout(() => saveWindowState(), 250);
+    moveSaveTimer = setTimeout(() => {
+      moveSaveTimer = null;
+      saveWindowState();
+    }, 250);
   });
 
-  // A frozen or crashed renderer must never leave an unclosable frame behind.
-  mainWindow.on('unresponsive', () => app.quit());
-  mainWindow.webContents.on('render-process-gone', () => app.quit());
+  // The × button quits through `agw:quit`; OS closes (Alt+F4) go to the tray.
+  mainWindow.on('close', (event) => {
+    if (app.isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  // A frozen renderer must not leave an unusable frame forever: give it 15s to
+  // recover before quitting, and cancel the timer on `responsive`.
+  let unresponsiveTimer = null;
+  mainWindow.on('unresponsive', () => {
+    if (unresponsiveTimer) return;
+    unresponsiveTimer = setTimeout(() => {
+      logError('unresponsive', new Error('Renderer unresponsive for 15s'));
+      app.quit();
+    }, 15000);
+  });
+  mainWindow.on('responsive', () => {
+    clearTimeout(unresponsiveTimer);
+    unresponsiveTimer = null;
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const reason = details && details.reason ? details.reason : 'unknown';
+    logError('render-process-gone', new Error(`Renderer process gone: ${reason}`));
+    app.quit();
+  });
 
   mainWindow.loadFile(path.join(__dirname, '..', '..', 'index.html'));
   return mainWindow;
@@ -183,9 +249,21 @@ function moveWindow(dx, dy) {
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
   };
-  const area = screen.getDisplayMatching(next).workArea;
-  next.x = Math.max(area.x, Math.min(next.x, area.x + area.width - WINDOW_WIDTH));
-  next.y = Math.max(area.y, Math.min(next.y, area.y + area.height - WINDOW_HEIGHT));
+
+  // Clamp against the union of every display's work area instead of snapping to
+  // the current display, so the widget can cross monitors freely.
+  const areas = screen.getAllDisplays().map((display) => display.workArea);
+  if (!areas.length) return;
+  const left = Math.min(...areas.map((area) => area.x));
+  const top = Math.min(...areas.map((area) => area.y));
+  const right = Math.max(...areas.map((area) => area.x + area.width));
+  const bottom = Math.max(...areas.map((area) => area.y + area.height));
+
+  // Keep TITLEBAR_GRAB pixels of the title bar visible horizontally and the
+  // whole title strip below the desktop top edge; on displays shorter than the
+  // window the top edge is never pushed off screen.
+  next.x = Math.max(left - WINDOW_WIDTH + TITLEBAR_GRAB, Math.min(next.x, right - TITLEBAR_GRAB));
+  next.y = Math.max(top, Math.min(next.y, bottom - TITLEBAR_GRAB));
   window.setBounds(next, false);
 }
 
@@ -199,4 +277,6 @@ module.exports = {
   moveWindow,
   pushState,
   saveWindowState,
+  saveCurrentWindowBounds,
+  flushWindowState,
 };

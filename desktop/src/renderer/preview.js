@@ -2,8 +2,8 @@
 
 /**
  * Mock data for design QA without Electron:
- * `index.html?preview=red|yellow|green|empty|offline|coupon|disabled|summary`.
- * Exposed as `window.AGW.preview`.
+ * `index.html?preview=red|yellow|green|empty|offline|coupon|disabled|summary|api_error|unknown`.
+ * `red` is the default scenario. Exposed as `window.AGW.preview`.
  */
 (function (AGW) {
   function isoOffset(hours) {
@@ -16,6 +16,7 @@
       updated_at: now,
       antigravity: {
         plan_tier: 'Pro',
+        error: null,
         buckets: [
           { id: 'gemini-weekly', kind: 'weekly', remaining_fraction: 0.814, reset_time: isoOffset(126) },
           { id: 'gemini-5h', kind: '5h', remaining_fraction: 0.668, reset_time: isoOffset(2.3) },
@@ -25,12 +26,14 @@
       },
       zcode: {
         running: true,
+        coupon_state: 'absent',
         coupon_visible: false,
         matched: '',
         plan_id: '',
         method: 'api',
         auth_ok: true,
         network_error: false,
+        error_kind: null,
         remaining_units: 320_000_000,
         total_units: 500_000_000,
         ends_at: isoOffset(24 * 6),
@@ -47,6 +50,7 @@
         red_pct: 65,
         warn_tokens: 209_715,
         risk_tokens: 340_787,
+        updated_at: now,
       },
     };
 
@@ -131,6 +135,7 @@
             red_pct: 65,
             warn_tokens: 419_430,
             risk_tokens: 681_574,
+            updated_at: now,
           },
         },
         now: Date.now(),
@@ -163,6 +168,7 @@
             red_pct: 65,
             warn_tokens: 419_430,
             risk_tokens: 681_574,
+            updated_at: now,
           },
         },
         now: Date.now(),
@@ -176,12 +182,14 @@
           ...base,
           zcode: {
             running: false,
+            coupon_state: 'absent',
             coupon_visible: false,
             matched: '',
             plan_id: '',
             method: 'disabled',
             auth_ok: null,
             network_error: false,
+            error_kind: null,
             remaining_units: null,
             total_units: null,
             ends_at: null,
@@ -203,6 +211,9 @@
             method: 'api',
             auth_ok: null,
             network_error: true,
+            coupon_state: 'unknown',
+            coupon_visible: null,
+            error_kind: 'network',
             remaining_units: null,
             total_units: null,
             ends_at: null,
@@ -222,10 +233,36 @@
           ...base,
           zcode: {
             ...base.zcode,
+            coupon_state: 'visible',
             coupon_visible: true,
             matched: 'Забрать 500M токенов',
             remaining_units: 250_000_000,
             total_units: 500_000_000,
+          },
+        },
+        now: Date.now(),
+      };
+    }
+
+    if (name === 'api_error' || name === 'unknown') {
+      const rateLimited = name === 'unknown';
+      return {
+        context: contextState,
+        status: {
+          ...base,
+          antigravity: {
+            ...base.antigravity,
+            error: rateLimited
+              ? 'Не удалось обновить квоты: лимит запросов (429)'
+              : 'Формат ответа /usage изменился — проверьте обновление AG Widgets',
+          },
+          zcode: {
+            ...base.zcode,
+            coupon_state: 'unknown',
+            coupon_visible: null,
+            matched: '',
+            network_error: false,
+            error_kind: rateLimited ? 'rate_limited' : 'api_changed',
           },
         },
         now: Date.now(),
@@ -242,13 +279,16 @@
     }
     return {
       getState: () => Promise.resolve(state),
-      hideWindow: () => {},
       minimizeWindow: () => {},
+      refresh: async () => ({ ok: true }),
+      zcodeLogin: async () => ({ ok: false, error: 'preview mode' }),
+      zcodeCancelLogin: async () => ({ ok: true }),
+      zcodeLogout: async () => ({ ok: false, error: 'preview mode' }),
+      openExternalAction: async () => ({ ok: true }),
       quitApp: () => {},
       showMenu: () => {},
       moveWindow: () => {},
-      refresh: async () => ({ ok: true }),
-      zcodeLogin: async () => ({ ok: false, error: 'preview mode' }),
+      saveWindowPosition: async () => ({ ok: true }),
       onStateUpdate: () => () => {},
     };
   }

@@ -7,7 +7,7 @@
 }
 
 :root {
-  --bg: #050308;
+  --bg: #0a0e13;
   --surface: #09090b;
   --card: rgba(12, 10, 16, 0.9);
   --card-border: rgba(255, 255, 255, 0.14);
@@ -26,6 +26,11 @@
   --badge: rgba(255, 255, 255, 0.06);
   --button-text: #050308;
   --grain-opacity: 0.05;
+  --gauge-halo: #ffe9b8;
+  --zone-track-bg: rgba(255, 255, 255, 0.08);
+  --zone-ok: rgba(52, 211, 153, 0.55);
+  --zone-warn: rgba(251, 191, 36, 0.62);
+  --zone-risk: rgba(251, 113, 133, 0.68);
   --font-display: "Space Grotesk", "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-body: "Bahnschrift", "Space Grotesk", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
@@ -51,6 +56,11 @@
   --badge: rgba(9, 9, 11, 0.05);
   --button-text: #ffffff;
   --grain-opacity: 0.035;
+  --gauge-halo: #7c3aed;
+  --zone-track-bg: rgba(9, 9, 11, 0.08);
+  --zone-ok: rgba(4, 120, 87, 0.55);
+  --zone-warn: rgba(180, 83, 9, 0.55);
+  --zone-risk: rgba(190, 18, 60, 0.55);
 }
 
 * {
@@ -58,6 +68,12 @@
   margin: 0;
   padding: 0;
   user-select: none;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--glow);
+  outline-offset: 2px;
 }
 
 html, body {
@@ -84,7 +100,7 @@ html, body {
     radial-gradient(circle at 8% -8%, rgba(176, 38, 255, 0.26), transparent 54%),
     radial-gradient(circle at 102% 82%, rgba(46, 127, 214, 0.22), transparent 58%),
     radial-gradient(circle at 90% 6%, rgba(255, 107, 53, 0.14), transparent 42%),
-    var(--bg);
+    color-mix(in srgb, var(--bg) 94%, transparent);
   overflow: hidden;
   transition: background-color 0.4s ease, color 0.4s ease;
 }
@@ -124,6 +140,25 @@ html, body {
 .widget-shell > * {
   position: relative;
   z-index: 1;
+}
+
+/* Scrollable card rail: keeps four quota rows, alerts, recent chips and the
+   login action inside the fixed 640px window. Padding plus equal negative
+   margins preserve the 5px offset card shadows inside the clipping box. */
+.cards-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 0 6px 6px 0;
+  margin: 0 -6px -6px 0;
+}
+
+.cards-stack::-webkit-scrollbar {
+  display: none;
 }
 
 /* ── Title bar ─────────────────────────────────────────── */
@@ -294,7 +329,6 @@ html, body {
 
 .card:nth-of-type(2) { animation-delay: 0.04s; }
 .card:nth-of-type(3) { animation-delay: 0.08s; }
-.card:nth-of-type(4) { animation-delay: 0.12s; }
 
 @keyframes card-in {
   from { opacity: 0; transform: translateY(7px); }
@@ -560,6 +594,19 @@ html, body {
   overflow: visible;
 }
 
+#zone-track.level-green,
+#zone-track.level-yellow,
+#zone-track.level-red {
+  background: linear-gradient(90deg,
+    var(--zone-ok) 0%, var(--zone-ok) var(--zone-warn-stop, 40%),
+    var(--zone-warn) var(--zone-warn-stop, 40%), var(--zone-warn) var(--zone-risk-stop, 65%),
+    var(--zone-risk) var(--zone-risk-stop, 65%), var(--zone-risk) 100%);
+}
+
+#zone-track.is-unknown {
+  background: var(--zone-track-bg);
+}
+
 .zone-marker {
   position: absolute;
   top: -4px;
@@ -627,6 +674,7 @@ html, body {
 .dot-green { background: var(--ok); box-shadow: 0 0 5px color-mix(in srgb, var(--ok) 70%, transparent); }
 .dot-yellow { background: var(--warn); box-shadow: 0 0 5px color-mix(in srgb, var(--warn) 70%, transparent); }
 .dot-red { background: var(--risk); box-shadow: 0 0 5px color-mix(in srgb, var(--risk) 70%, transparent); }
+.dot-unknown { background: var(--text-muted); }
 
 /* ── 02 Limits ─────────────────────────────────────────── */
 
@@ -644,6 +692,40 @@ html, body {
   border-radius: 4px;
   color: var(--glow);
   text-transform: uppercase;
+}
+
+.quota-extra {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--badge);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tier-badge.has-error {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.quota-error {
+  margin-top: 9px;
+  padding: 5px 7px;
+  border-left: 2px solid var(--warn);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+  overflow-wrap: anywhere;
 }
 
 .quota-list {
@@ -750,6 +832,7 @@ html, body {
 [data-theme="light"] .bar-fill.third { background: #be185d; }
 [data-theme="light"] .bar-fill.mid { background: var(--warn); }
 [data-theme="light"] .bar-fill.low { background: var(--risk); }
+.bar-fill.unknown { background: transparent; }
 
 .empty-msg {
   font-family: var(--font-mono);
@@ -948,7 +1031,10 @@ html, body {
   .ring-satellite,
   .zone-marker,
   .bar-fill,
-  .zcode-bar-fill {
+  .zcode-bar-fill,
+  .widget-shell,
+  .icon-btn,
+  .zcode-action {
     transition: none;
   }
   .refresh-btn.refreshing svg {

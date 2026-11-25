@@ -4,8 +4,13 @@
  * Card 02: Antigravity limits (Gemini and Claude/GPT buckets).
  * Exposed as `window.AGW.quotas`.
  */
-(function (AGW) {
-  const { clamp, formatCountdown } = AGW.format;
+(function (root) {
+  const AGW = (root.AGW = root.AGW || {});
+  const format = AGW.format || (typeof require === 'function' ? require('./format.js') : null);
+  const { clamp, formatCountdown } = format;
+
+  const BUCKET_PRIORITY = ['gemini-5h', 'gemini-weekly', '3p-5h', '3p-weekly'];
+  const MAX_ROWS = 4;
 
   function bucketLabel(bucket) {
     const id = String(bucket.id || '').toLowerCase();
@@ -14,33 +19,104 @@
     return group ? `${group} · ${kind}` : kind;
   }
 
+  function bucketPriority(bucket) {
+    const id = String((bucket && bucket.id) || '').toLowerCase();
+    const index = BUCKET_PRIORITY.indexOf(id);
+    return index === -1 ? BUCKET_PRIORITY.length : index;
+  }
+
+  /**
+   * Pure per-bucket view model for the quota row.
+   * An unknown fraction yields `null` percent and a neutral, zero-width fill.
+   */
+  function bucketView(bucket) {
+    const safe = bucket || {};
+    const id = String(safe.id || '');
+    const isThirdParty = id.startsWith('3p-');
+    const fraction =
+      typeof safe.remaining_fraction === 'number' && Number.isFinite(safe.remaining_fraction)
+        ? clamp(safe.remaining_fraction, 0, 1)
+        : null;
+    const percent = fraction === null ? null : Math.round(fraction * 100);
+
+    let fillClass = 'bar-fill';
+    if (fraction === null) fillClass += ' unknown';
+    else if (fraction <= 0.001) fillClass += ' empty';
+    else if (fraction < 0.2) fillClass += ' low';
+    else if (fraction < 0.45) fillClass += ' mid';
+    else if (isThirdParty) fillClass += ' third';
+
+    return {
+      percent,
+      percentText: percent === null ? '—' : `${percent}%`,
+      fillClass,
+      label: bucketLabel(safe),
+    };
+  }
+
   function render(status) {
     const tier = document.getElementById('plan-tier');
     const list = document.getElementById('quota-list');
+    const extra = document.getElementById('quota-extra');
+    const errorBox = document.getElementById('quota-error');
     const antigravity = status && status.antigravity;
+    const error = antigravity && typeof antigravity.error === 'string' ? antigravity.error : '';
 
-    tier.textContent = antigravity && antigravity.plan_tier ? antigravity.plan_tier : 'Pro';
+    if (tier) {
+      tier.textContent = antigravity && antigravity.plan_tier ? antigravity.plan_tier : '—';
+      tier.title = error ? `Квоты не обновились: ${error}` : '';
+      tier.classList.toggle('has-error', Boolean(error));
+    }
+    if (errorBox) {
+      errorBox.textContent = error ? `Квоты не обновились: ${error}` : '';
+      errorBox.classList.toggle('hidden', !error);
+    }
+
+    if (!list) return;
 
     if (!antigravity || !Array.isArray(antigravity.buckets) || antigravity.buckets.length === 0) {
+      if (extra) {
+        extra.textContent = '';
+        extra.title = '';
+        extra.classList.add('hidden');
+      }
       list.className = 'quota-list empty';
-      list.innerHTML = '<div class="empty-msg">Квоты появятся после первого /usage</div>';
+      list.innerHTML = '';
+      const message = document.createElement('div');
+      message.className = 'empty-msg';
+      message.textContent = 'Квоты появятся после первого /usage';
+      list.appendChild(message);
       return;
     }
 
     const order = { '5h': 0, weekly: 1, other: 2 };
     const sorted = [...antigravity.buckets].sort((a, b) => {
+      const byPriority = bucketPriority(a) - bucketPriority(b);
+      if (byPriority !== 0) return byPriority;
       const aGemini = String(a.id || '').startsWith('gemini-') ? 0 : 1;
       const bGemini = String(b.id || '').startsWith('gemini-') ? 0 : 1;
       if (aGemini !== bGemini) return aGemini - bGemini;
       return (order[a.kind] ?? 2) - (order[b.kind] ?? 2);
     });
 
+    const hidden = sorted.slice(MAX_ROWS);
+    if (extra) {
+      if (hidden.length > 0) {
+        extra.textContent = `+${hidden.length}`;
+        extra.title = `Скрыты: ${hidden.map((bucket) => bucketLabel(bucket)).join(', ')}`;
+        extra.classList.remove('hidden');
+      } else {
+        extra.textContent = '';
+        extra.title = '';
+        extra.classList.add('hidden');
+      }
+    }
+
     list.className = 'quota-list';
     list.innerHTML = '';
 
-    sorted.slice(0, 4).forEach((bucket, index) => {
-      const fraction = typeof bucket.remaining_fraction === 'number' ? clamp(bucket.remaining_fraction, 0, 1) : 0;
-      const percent = Math.round(fraction * 100);
+    sorted.slice(0, MAX_ROWS).forEach((bucket, index) => {
+      const view = bucketView(bucket);
       const id = String(bucket.id || '');
       const isThirdParty = id.startsWith('3p-');
       const isGemini = id.startsWith('gemini-');
@@ -56,14 +132,14 @@
       const dot = document.createElement('span');
       dot.className = `quota-group-dot ${isThirdParty ? 'third' : 'gem'}`;
       const name = document.createElement('span');
-      name.textContent = bucketLabel(bucket);
+      name.textContent = view.label;
       label.append(dot, name);
 
       const reset = document.createElement('span');
       reset.className = 'quota-reset';
       reset.textContent = formatCountdown(bucket.reset_time) || '—';
       const percentEl = document.createElement('b');
-      percentEl.textContent = ` ${percent}%`;
+      percentEl.textContent = ` ${view.percentText}`;
       reset.appendChild(percentEl);
 
       const indexEl = document.createElement('span');
@@ -74,13 +150,8 @@
       const track = document.createElement('div');
       track.className = 'bar-track';
       const fill = document.createElement('div');
-      let fillClass = 'bar-fill';
-      if (fraction <= 0.001) fillClass += ' empty';
-      else if (fraction < 0.2) fillClass += ' low';
-      else if (fraction < 0.45) fillClass += ' mid';
-      else if (isThirdParty) fillClass += ' third';
-      fill.className = fillClass;
-      fill.style.width = `${percent}%`;
+      fill.className = view.fillClass;
+      fill.style.width = `${view.percent === null ? 0 : view.percent}%`;
       track.appendChild(fill);
 
       row.append(top, track);
@@ -89,5 +160,9 @@
     });
   }
 
-  AGW.quotas = { render };
-})(window.AGW = window.AGW || {});
+  AGW.quotas = { render, bucketView };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { render, bucketView };
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
