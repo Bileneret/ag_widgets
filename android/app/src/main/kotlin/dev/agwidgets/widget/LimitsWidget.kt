@@ -36,6 +36,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.ContextSummary
@@ -216,8 +217,10 @@ private fun WidgetContent(status: AgStatus?, dark: Boolean) {
                     modifier = GlanceModifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val (zText, zBg) = zcodeChip(status.zcode, dark)
-                    WidgetChip(zText, zBg, fg)
+                    if (BuildConfig.ZCODE_ENABLED) {
+                        val (zText, zBg) = zcodeChip(status.zcode, dark)
+                        WidgetChip(zText, zBg, fg)
+                    }
 
                     Spacer(modifier = GlanceModifier.defaultWeight())
 

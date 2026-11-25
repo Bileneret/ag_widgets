@@ -27,6 +27,7 @@ android/captures/
 android/.idea/
 *.keystore
 *.jks
+keystore.properties
 
 # Built release artifacts
 dist/

@@ -37,11 +37,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.updateAll
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.NtfyClient
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeClient
 import dev.agwidgets.data.ZCodeOAuthPollResult
+import dev.agwidgets.data.ZCodeStore
 import dev.agwidgets.notify.Notifier
 import dev.agwidgets.ui.components.AccessCard
 import dev.agwidgets.ui.components.ChannelCard
@@ -64,7 +66,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
     val colors = AgTheme.colors
 
     var topic by remember { mutableStateOf(StatusStore.getTopic(context)) }
-    var zcodeToken by remember { mutableStateOf(StatusStore.getZCodeToken(context)) }
+    var zcodeToken by remember { mutableStateOf(if (BuildConfig.ZCODE_ENABLED) ZCodeStore.getToken(context) else "") }
     var lastStatus by remember { mutableStateOf<AgStatus?>(StatusStore.getMergedStatus(context)) }
     var statusMessage by remember { mutableStateOf(StatusStore.getLastError(context) ?: "") }
     var zcodeMessage by remember {
@@ -74,6 +76,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
     var isOAuthPending by remember { mutableStateOf(false) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(StatusStore.getMode(context)) }
 
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -98,14 +101,14 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
 
     fun refresh() {
         if (isRefreshing) return
-        StatusStore.setTopic(context, topic)
-        if (zcodeToken.isNotBlank()) StatusStore.setZCodeToken(context, zcodeToken)
+        if (mode != StatusStore.MODE_ZCODE) StatusStore.setTopic(context, topic)
+        if (BuildConfig.ZCODE_ENABLED && zcodeToken.isNotBlank()) ZCodeStore.setToken(context, zcodeToken)
         isRefreshing = true
         statusMessage = "Обновление..."
         scope.launch {
             val messages = mutableListOf<String>()
 
-            if (topic.isNotBlank()) {
+            if (mode != StatusStore.MODE_ZCODE && topic.isNotBlank()) {
                 NtfyClient.fetchLatestMessage(topic).fold(
                     onSuccess = { jsonText ->
                         val parsed = AgStatus.fromJson(jsonText)
@@ -124,12 +127,12 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                 )
             }
 
-            val token = StatusStore.getZCodeToken(context)
+            val token = if (BuildConfig.ZCODE_ENABLED) ZCodeStore.getToken(context) else ""
             if (token.isNotBlank()) {
-                val deviceMid = StatusStore.getOrCreateDeviceMid(context)
+                val deviceMid = ZCodeStore.getOrCreateDeviceMid(context)
                 ZCodeClient.fetchStatus(token, deviceMid).fold(
                     onSuccess = { zcode ->
-                        val (previous, current) = StatusStore.saveDirectZCode(context, zcode)
+                        val (previous, current) = ZCodeStore.saveDirect(context, zcode)
                         Notifier.checkZCodeCouponTransition(context, previous, current)
                         zcodeMessage = when {
                             zcode.authOk == false -> "Токен истёк — войдите снова"
@@ -147,10 +150,10 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             lastStatus = StatusStore.getMergedStatus(context)
             nowMs = System.currentTimeMillis()
             LimitsWidget().updateAll(context)
-            statusMessage = if (messages.isEmpty()) {
-                "Укажите тему ntfy или войдите в Z.ai"
-            } else {
-                messages.joinToString(" · ")
+            statusMessage = when {
+                messages.isNotEmpty() -> messages.joinToString(" · ")
+                BuildConfig.ZCODE_ENABLED && mode == StatusStore.MODE_ZCODE -> "Войдите в Z.ai"
+                else -> "Укажите тему ntfy"
             }
             isRefreshing = false
         }
@@ -180,10 +183,10 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                             }
                             is ZCodeOAuthPollResult.Ready -> {
                                 zcodeToken = poll.token
-                                StatusStore.setZCodeToken(context, poll.token)
-                                val deviceMid = StatusStore.getOrCreateDeviceMid(context)
+                                ZCodeStore.setToken(context, poll.token)
+                                val deviceMid = ZCodeStore.getOrCreateDeviceMid(context)
                                 ZCodeClient.fetchStatus(poll.token, deviceMid).onSuccess { fetched ->
-                                    StatusStore.saveDirectZCode(context, fetched)
+                                    ZCodeStore.saveDirect(context, fetched)
                                     lastStatus = StatusStore.getMergedStatus(context)
                                     nowMs = System.currentTimeMillis()
                                     LimitsWidget().updateAll(context)
@@ -204,7 +207,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
 
     fun logout() {
         zcodeToken = ""
-        StatusStore.clearZCodeToken(context)
+        ZCodeStore.clearToken(context)
         zcodeMessage = "Токен удалён"
         lastStatus = StatusStore.getMergedStatus(context)
         scope.launch { LimitsWidget().updateAll(context) }
@@ -220,7 +223,9 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        if (lastStatus == null && (topic.isNotBlank() || zcodeToken.isNotBlank())) refresh()
+        val canFetchPc = mode != StatusStore.MODE_ZCODE && topic.isNotBlank()
+        val canFetchZCode = BuildConfig.ZCODE_ENABLED && zcodeToken.isNotBlank()
+        if (lastStatus == null && (canFetchPc || canFetchZCode)) refresh()
     }
 
     Box(
@@ -269,61 +274,98 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .safeDrawingPadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Header(
-                status = lastStatus,
-                nowMs = nowMs,
-                darkTheme = darkTheme,
-                onToggleTheme = onToggleTheme,
-            )
-            HeroCard(
-                status = lastStatus,
-                nowMs = nowMs,
-                isRefreshing = isRefreshing,
-                onRefresh = { refresh() },
-            )
-            ChannelCard(
-                topic = topic,
-                onTopicChange = { topic = it },
-                isRefreshing = isRefreshing,
-                statusMessage = statusMessage,
-                onSave = {
-                    StatusStore.setTopic(context, topic)
-                    statusMessage = "Тема сохранена"
+        if (mode == StatusStore.MODE_UNSET) {
+            OnboardingScreen(
+                zcodeAvailable = BuildConfig.ZCODE_ENABLED,
+                onChoosePc = {
+                    StatusStore.setMode(context, StatusStore.MODE_PC)
+                    mode = StatusStore.MODE_PC
+                    if (topic.isNotBlank()) refresh()
                 },
-                onRefresh = { refresh() },
+                onChooseZcode = {
+                    StatusStore.setMode(context, StatusStore.MODE_ZCODE)
+                    mode = StatusStore.MODE_ZCODE
+                    if (zcodeToken.isNotBlank()) refresh()
+                },
             )
-            AccessCard(
-                zcode = lastStatus?.zcode,
-                token = zcodeToken,
-                onTokenChange = { zcodeToken = it },
-                isPending = isOAuthPending,
-                message = zcodeMessage,
-                onLogin = { login() },
-                onLogout = { logout() },
-            )
-            SurfaceCard(onPinWidget = { pinWidget() })
-            DiagnosticsCard(
-                rawJson = lastStatus?.rawJson,
-                lastError = StatusStore.getLastError(context),
-                expanded = showDiagnostics,
-                onToggle = { showDiagnostics = !showDiagnostics },
-            )
-            Text(
-                text = "AGW / 01 · В NTFY УХОДЯТ ЧИСЛА КВОТ, ТОКЕНОВ, ID ДИАЛОГА И ФЛАГ ВАУЧЕРА",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 8.sp,
-                letterSpacing = 0.8.sp,
-                color = AgTheme.colors.muted.copy(alpha = 0.7f),
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .safeDrawingPadding()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Header(
+                    status = lastStatus,
+                    nowMs = nowMs,
+                    darkTheme = darkTheme,
+                    onToggleTheme = onToggleTheme,
+                )
+                if (mode != StatusStore.MODE_ZCODE) {
+                    HeroCard(
+                        status = lastStatus,
+                        nowMs = nowMs,
+                        isRefreshing = isRefreshing,
+                        onRefresh = { refresh() },
+                    )
+                    ChannelCard(
+                        topic = topic,
+                        onTopicChange = { topic = it },
+                        isRefreshing = isRefreshing,
+                        statusMessage = statusMessage,
+                        onSave = {
+                            StatusStore.setTopic(context, topic)
+                            statusMessage = "Тема сохранена"
+                        },
+                        onRefresh = { refresh() },
+                    )
+                }
+                if (BuildConfig.ZCODE_ENABLED) {
+                    AccessCard(
+                        zcode = lastStatus?.zcode,
+                        token = zcodeToken,
+                        onTokenChange = { zcodeToken = it },
+                        isPending = isOAuthPending,
+                        message = zcodeMessage,
+                        onLogin = { login() },
+                        onLogout = { logout() },
+                    )
+                }
+                if (mode != StatusStore.MODE_ZCODE) {
+                    SurfaceCard(onPinWidget = { pinWidget() })
+                }
+                DiagnosticsCard(
+                    rawJson = lastStatus?.rawJson,
+                    lastError = StatusStore.getLastError(context),
+                    expanded = showDiagnostics,
+                    onToggle = { showDiagnostics = !showDiagnostics },
+                    onChangeMode = if (BuildConfig.ZCODE_ENABLED) {
+                        {
+                            StatusStore.setMode(context, StatusStore.MODE_UNSET)
+                            mode = StatusStore.MODE_UNSET
+                        }
+                    } else {
+                        null
+                    },
+                )
+                Text(
+                    text = when {
+                        mode == StatusStore.MODE_ZCODE ->
+                            "AGW / 01 · ТОКЕН ZCODE ХРАНИТСЯ ТОЛЬКО НА ТЕЛЕФОНЕ"
+                        BuildConfig.ZCODE_ENABLED ->
+                            "AGW / 01 · В NTFY УХОДЯТ ЧИСЛА КВОТ, ТОКЕНОВ, ID ДИАЛОГА И ФЛАГ ВАУЧЕРА"
+                        else ->
+                            "AGW / 01 · В NTFY УХОДЯТ ЧИСЛА КВОТ, ТОКЕНОВ И ID ДИАЛОГА"
+                    },
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 8.sp,
+                    letterSpacing = 0.8.sp,
+                    color = AgTheme.colors.muted.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }

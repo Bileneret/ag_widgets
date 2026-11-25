@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.ui.theme.AgTheme
 
 @Composable
@@ -32,8 +33,12 @@ internal fun ChannelCard(
             chipColor = if (topic.isBlank()) AgTheme.colors.muted else AgTheme.colors.glow,
         )
         Text(
-            text = "Квоты 5h/неделя, контекст ПК и статус ZCode приходят с компьютера " +
-                "через приватный ntfy-канал.",
+            text = if (BuildConfig.ZCODE_ENABLED) {
+                "Квоты 5h/неделя, контекст ПК и статус ZCode приходят с компьютера " +
+                    "через приватный ntfy-канал."
+            } else {
+                "Квоты 5h/неделя и контекст ПК приходят с компьютера через приватный ntfy-канал."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = AgTheme.colors.muted,
         )

@@ -11,10 +11,12 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.NtfyClient
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeClient
+import dev.agwidgets.data.ZCodeStore
 import dev.agwidgets.notify.Notifier
 import dev.agwidgets.widget.LimitsWidget
 import java.util.concurrent.TimeUnit
@@ -28,7 +30,8 @@ class RefreshWorker(
         var anyNetworkFailure = false
 
         // 1. Poll ntfy channel (Antigravity quotas + PC context summary)
-        val topic = StatusStore.getTopic(applicationContext)
+        val mode = StatusStore.getMode(applicationContext)
+        val topic = if (mode == StatusStore.MODE_ZCODE) "" else StatusStore.getTopic(applicationContext)
         if (topic.isNotBlank()) {
             val res = NtfyClient.fetchLatestMessage(topic)
             res.fold(
@@ -52,15 +55,17 @@ class RefreshWorker(
         }
 
         // 2. Direct ZCode API check (works autonomously on phone even when laptop is off)
-        val zcodeToken = StatusStore.getZCodeToken(applicationContext)
-        if (zcodeToken.isNotBlank()) {
-            val deviceMid = StatusStore.getOrCreateDeviceMid(applicationContext)
-            val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid)
-            zRes.onSuccess { zStatus ->
-                val (prevZ, currZ) = StatusStore.saveDirectZCode(applicationContext, zStatus)
-                Notifier.checkZCodeCouponTransition(applicationContext, prevZ, currZ)
-            }.onFailure {
-                anyNetworkFailure = true
+        if (BuildConfig.ZCODE_ENABLED) {
+            val zcodeToken = ZCodeStore.getToken(applicationContext)
+            if (zcodeToken.isNotBlank()) {
+                val deviceMid = ZCodeStore.getOrCreateDeviceMid(applicationContext)
+                val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid)
+                zRes.onSuccess { zStatus ->
+                    val (prevZ, currZ) = ZCodeStore.saveDirect(applicationContext, zStatus)
+                    Notifier.checkZCodeCouponTransition(applicationContext, prevZ, currZ)
+                }.onFailure {
+                    anyNetworkFailure = true
+                }
             }
         }
 

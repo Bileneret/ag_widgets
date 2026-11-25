@@ -13,19 +13,6 @@ import java.net.URLEncoder
 import java.security.SecureRandom
 import java.time.Instant
 
-data class ZCodeOAuthFlow(
-    val flowId: String,
-    val authorizeUrl: String,
-    val pollToken: String,
-    val pollIntervalSec: Long
-)
-
-sealed class ZCodeOAuthPollResult {
-    data object Pending : ZCodeOAuthPollResult()
-    data class Ready(val token: String) : ZCodeOAuthPollResult()
-    data class Failed(val reason: String) : ZCodeOAuthPollResult()
-}
-
 object ZCodeClient {
     private const val ORIGIN = "https://zcode.z.ai"
     private const val APP_VERSION = "3.5.0"

@@ -14,7 +14,7 @@ AG Widgets exists for those two jobs:
 Two clients share one visual language (black glass, warm cream accent, Space Grotesk + monospace labels, light/dark themes):
 
 1. **Desktop widget** — Electron on Windows. Shows the open chat's context, 5h/weekly quotas, ZCode vouchers and balance.
-2. **Android app + 4×2 widget** — Kotlin/Jetpack Glance. Works with the PC off: polls a private ntfy channel and `zcode.z.ai` directly, and schedules a local reminder at quota reset time.
+2. **Android app + 4×2 widget** — Kotlin/Jetpack Glance. Two builds: **AG Widgets** (Antigravity + ZCode) and **AG Context** (Antigravity only). Works with the PC off for ZCode: polls a private ntfy channel and `zcode.z.ai` directly, and schedules a local reminder at quota reset time.
 
 Russian documentation: [README.ru.md](README.ru.md).
 
@@ -29,6 +29,21 @@ Russian documentation: [README.ru.md](README.ru.md).
 | **03 · Access** | ZCode vouchers, balance, plan, OAuth sign-in | Direct ZCode polling without the PC |
 
 The desktop widget is fixed at 400×640, always-on-top by default, and lives in the tray. The Android widget is a resizable 4×2 Glance surface with light/dark support.
+
+### Two Android builds
+
+One codebase produces two signed APKs. They have different application ids and can be installed side by side.
+
+| | **AG Widgets** | **AG Context** |
+|---|---|---|
+| Antigravity context + quotas | yes | yes |
+| ZCode vouchers, balance, OAuth | yes | **no** |
+| Works without a PC | yes, for ZCode | no |
+| package | `dev.agwidgets` | `dev.agwidgets.context` |
+
+**AG Widgets** is the recommended download: ZCode works immediately without a PC, and the Antigravity part can be connected later. **AG Context** is for people who only want Antigravity and do not want any ZCode client, token storage, or ZCode network calls in the APK.
+
+If both builds are installed and connected to the same ntfy topic, reset notifications will be duplicated. Use one build for the PC channel.
 
 ---
 
@@ -211,34 +226,53 @@ The Antigravity CLI reports the exact `context_window_size`; the status line cac
 
 ## Android app
 
+### Download
+
+Both are signed community builds with no personal ntfy topic. Checksums are attached to the release.
+
+- **AG Widgets 1.0.0** (recommended, Antigravity + ZCode):
+  https://github.com/DmytroHnylytskyi/ag_widgets/releases/latest/download/AG-Widgets-1.0.0.apk
+- **AG Context 1.0.0** (Antigravity only):
+  https://github.com/DmytroHnylytskyi/ag_widgets/releases/latest/download/AG-Context-1.0.0.apk
+
 ### Build
 
-JDK 17 and the Android SDK are required.
+JDK 17 and the Android SDK are required. Release builds are signed with the project release key stored outside the repository; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ```powershell
 cd android
 
-# Public build: no embedded topic.
-.\gradlew.bat assembleDebug -Pcommunity=true
+# Both signed public releases: no embedded topic.
+.\gradlew.bat :app:assembleFullRelease :app:assembleContextRelease `
+  -Pcommunity=true --no-configuration-cache
 
-# Personal build: reads agw.topic from local.properties (gitignored).
-.\gradlew.bat assembleDebug
+# Local debug builds.
+.\gradlew.bat :app:assembleFullDebug :app:assembleContextDebug -Pcommunity=true
+
+# Personal full build: reads agw.topic from local.properties (gitignored).
+.\gradlew.bat :app:assembleFullRelease --no-configuration-cache
 ```
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`. For a release, copy the community build to `dist/ag-widgets-community.apk` (`dist/` is gitignored).
+Outputs:
+
+```text
+android/app/build/outputs/apk/full/release/app-full-release.apk
+android/app/build/outputs/apk/context/release/app-context-release.apk
+```
 
 **Before publishing an APK**, always build with `-Pcommunity=true` so your personal ntfy topic is not compiled into `BuildConfig`.
 
 ### First run
 
 1. Open the app and allow notifications.
-2. Paste the `ntfy_topic` printed by the installer.
-3. Tap **Войти в Z.ai** for autonomous voucher/balance checks.
-4. Tap **Обновить**, then **Добавить виджет на экран**.
+2. Choose a mode:
+   - **ZCode only** (AG Widgets): tap **Войти в Z.ai**. No PC is required.
+   - **With a PC**: paste the `ntfy_topic` printed by the desktop installer.
+3. Tap **Обновить**, then **Добавить виджет на экран**.
 
 The app refreshes every 15 minutes (WorkManager minimum). Manual refresh: the button in the app, **⟳** in the context card, or a tap on the widget. After switching chats on the PC, the desktop publishes the new active chat immediately; press **⟳** on the phone to pick it up.
 
-> The application id is `dev.agwidgets`. If you installed an earlier private build under a different id, uninstall it first; Android does not migrate preferences between application ids.
+> Application ids are `dev.agwidgets` (AG Widgets) and `dev.agwidgets.context` (AG Context). The two builds can be installed side by side. An older private build under `dev.dmitr.agwidgets` must be uninstalled first.
 
 The header **☀/☾** button switches light/dark mode; the 4×2 widget follows the app. By default the theme follows the system.
 
@@ -250,7 +284,8 @@ The header **☀/☾** button switches light/dark mode; the 4×2 widget follows 
 - `ntfy_topic` is 96 random bits and lives only in `%LOCALAPPDATA%\ag-widgets\config.json`.
 - The ZCode token is stored locally in `secrets.json` (desktop) or private SharedPreferences (Android).
 - Android uses `allowBackup="false"`, so preferences do not go to cloud backup.
-- The community APK contains no topic or token. A personal APK embeds only the topic from `local.properties`.
+- The community APKs contain no topic or token. A personal APK embeds only the topic from `local.properties`.
+- **AG Context** has no ZCode client, OAuth flow, token storage, or ZCode network calls.
 
 ---
 
@@ -260,23 +295,31 @@ The header **☀/☾** button switches light/dark mode; the 4×2 widget follows 
 # Python: model windows, context thresholds, ZCode parsing, change detection
 python -m unittest discover -s tests -p "test_*.py" -v
 
-# Android: status parsing and PC/phone merge
+# Android: status parsing and PC/phone merge, both flavors
 cd android
-.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:testFullDebugUnitTest :app:testContextDebugUnitTest
 
-# Community build
-.\gradlew.bat assembleDebug -Pcommunity=true
+# Both community builds
+.\gradlew.bat :app:assembleFullRelease :app:assembleContextRelease `
+  -Pcommunity=true --no-configuration-cache
 ```
 
 ---
 
 ## Limitations
 
+- **AG Context** needs the desktop collector for everything: it has no ZCode-only mode. **AG Widgets** only needs a PC for the Antigravity cards; ZCode works standalone.
 - **Acrylic** requires Windows 11 22H2+. Windows 10 falls back to a translucent background without the system blur.
 - The Android widget cannot blur wallpapers system-wide; it uses a glass imitation (gradient, border, highlight).
 - **WorkManager** is best-effort: 15-minute minimum, and battery optimizations can delay it. Reset reminders are scheduled locally but are not guaranteed to the second.
 - **ZCode API** is an open protocol used by ZCode; endpoints can change. There is no scraping fallback.
 - Model windows can change. The CLI value is picked up automatically; the built-in table is only a fallback.
+
+---
+
+## Disclaimer
+
+AG Widgets is an unofficial community project. It is not affiliated with, endorsed by, or supported by Google or Z.ai. Antigravity and ZCode are trademarks of their respective owners.
 
 ---
 

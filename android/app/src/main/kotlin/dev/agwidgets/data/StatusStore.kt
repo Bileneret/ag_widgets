@@ -3,8 +3,6 @@ package dev.agwidgets.data
 import android.content.Context
 import android.content.res.Configuration
 import dev.agwidgets.BuildConfig
-import org.json.JSONObject
-import java.util.UUID
 
 /**
  * Single source of truth for the Android app.
@@ -17,11 +15,13 @@ object StatusStore {
     private const val KEY_TOPIC = "ntfy_topic"
     private const val KEY_LAST_JSON = "last_json"
     private const val KEY_LAST_ERROR = "last_error"
-    private const val KEY_ZCODE_TOKEN = "zcode_token"
-    private const val KEY_DEVICE_MID = "device_mid"
-    private const val KEY_DIRECT_ZCODE = "direct_zcode_json"
     private const val KEY_NOTIFIED_RESETS = "notified_resets"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_MODE = "mode"
+
+    const val MODE_UNSET = "unset"
+    const val MODE_PC = "pc"
+    const val MODE_ZCODE = "zcode"
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -35,27 +35,20 @@ object StatusStore {
         prefs(context).edit().putString(KEY_TOPIC, topic.trim()).apply()
     }
 
-    fun getZCodeToken(context: Context): String =
-        prefs(context).getString(KEY_ZCODE_TOKEN, "")?.trim().orEmpty()
-
-    fun setZCodeToken(context: Context, token: String) {
-        prefs(context).edit().putString(KEY_ZCODE_TOKEN, token.trim()).apply()
+    /**
+     * How the app is used: with a PC (Antigravity + optional ZCode) or ZCode only.
+     * Existing installs are inferred from saved data so they skip onboarding.
+     */
+    fun getMode(context: Context): String {
+        val saved = prefs(context).getString(KEY_MODE, null)?.lowercase()
+        if (saved == MODE_PC || saved == MODE_ZCODE || saved == MODE_UNSET) return saved
+        if (getTopic(context).isNotBlank()) return MODE_PC
+        if (BuildConfig.ZCODE_ENABLED && ZCodeStore.getToken(context).isNotBlank()) return MODE_ZCODE
+        return MODE_UNSET
     }
 
-    fun clearZCodeToken(context: Context) {
-        prefs(context).edit()
-            .remove(KEY_ZCODE_TOKEN)
-            .remove(KEY_DIRECT_ZCODE)
-            .apply()
-    }
-
-    fun getOrCreateDeviceMid(context: Context): String {
-        val preferences = prefs(context)
-        val existing = preferences.getString(KEY_DEVICE_MID, null)?.trim()
-        if (!existing.isNullOrEmpty()) return existing
-        val created = UUID.randomUUID().toString()
-        preferences.edit().putString(KEY_DEVICE_MID, created).apply()
-        return created
+    fun setMode(context: Context, mode: String) {
+        prefs(context).edit().putString(KEY_MODE, mode.lowercase()).apply()
     }
 
     fun getLastStatus(context: Context): AgStatus? {
@@ -63,18 +56,9 @@ object StatusStore {
         return AgStatus.fromJson(raw)
     }
 
-    fun getDirectZCode(context: Context): ZCodeStatus? {
-        val raw = prefs(context).getString(KEY_DIRECT_ZCODE, null) ?: return null
-        return try {
-            ZCodeStatus.fromJson(JSONObject(raw))
-        } catch (_: Exception) {
-            null
-        }
-    }
-
     /** PC status with the fresher phone-side ZCode check taking precedence. */
     fun getMergedStatus(context: Context): AgStatus? =
-        mergeStatus(getLastStatus(context), getDirectZCode(context))
+        mergeStatus(getLastStatus(context), ZCodeStore.getDirect(context))
 
     fun saveNewStatus(context: Context, rawJson: String): Pair<AgStatus?, AgStatus?> {
         val preferences = prefs(context)
@@ -84,22 +68,6 @@ object StatusStore {
             .remove(KEY_LAST_ERROR)
             .apply()
         return previousRaw?.let { AgStatus.fromJson(it) } to AgStatus.fromJson(rawJson)
-    }
-
-    fun saveDirectZCode(context: Context, status: ZCodeStatus): Pair<ZCodeStatus?, ZCodeStatus> {
-        val preferences = prefs(context)
-        val previousRaw = preferences.getString(KEY_DIRECT_ZCODE, null)
-        val previous = previousRaw?.let {
-            try {
-                ZCodeStatus.fromJson(JSONObject(it))
-            } catch (_: Exception) {
-                null
-            }
-        }
-        preferences.edit()
-            .putString(KEY_DIRECT_ZCODE, status.toJson().toString())
-            .apply()
-        return previous to status
     }
 
     fun isResetNotified(context: Context, bucketId: String, resetTime: String): Boolean {

@@ -14,21 +14,62 @@ val localProperties = Properties().apply {
 val isCommunityBuild = providers.gradleProperty("community").map { it.equals("true", ignoreCase = true) }.getOrElse(false)
 val agwTopic: String = if (isCommunityBuild) "" else (localProperties.getProperty("agw.topic") ?: "").trim()
 
+// Release credentials live outside the repository. Override the path with
+// AGW_KEYSTORE_PROPERTIES (useful for CI); by default use the same runtime
+// directory as the collector.
+val keystoreProperties = Properties().apply {
+  val externalPath = System.getenv("AGW_KEYSTORE_PROPERTIES")
+    ?: System.getenv("LOCALAPPDATA")?.let { "$it/ag-widgets/keys/keystore.properties" }
+  if (!externalPath.isNullOrBlank()) {
+    val externalFile = file(externalPath)
+    if (externalFile.exists()) {
+      externalFile.inputStream().use { load(it) }
+    }
+  }
+}
+val releaseStoreFile = keystoreProperties.getProperty("storeFile")?.takeIf { it.isNotBlank() }
+val hasReleaseSigning = releaseStoreFile != null
+
 android {
   namespace = "dev.agwidgets"
   compileSdk = 37
   defaultConfig {
-    applicationId = "dev.agwidgets"
     minSdk = 26
     targetSdk = 37
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
     buildConfigField("String", "AGW_TOPIC", "\"$agwTopic\"")
+  }
+
+  flavorDimensions += "product"
+  productFlavors {
+    create("full") {
+      dimension = "product"
+      applicationId = "dev.agwidgets"
+      buildConfigField("boolean", "ZCODE_ENABLED", "true")
+    }
+    create("context") {
+      dimension = "product"
+      applicationId = "dev.agwidgets.context"
+      buildConfigField("boolean", "ZCODE_ENABLED", "false")
+    }
+  }
+
+  signingConfigs {
+    if (hasReleaseSigning) {
+      create("release") {
+        storeFile = releaseStoreFile?.let { file(it) }
+        storePassword = keystoreProperties.getProperty("storePassword")
+        keyAlias = keystoreProperties.getProperty("keyAlias")
+        keyPassword = keystoreProperties.getProperty("keyPassword")
+      }
+    }
   }
 
   buildTypes {
     release {
       isMinifyEnabled = false
+      if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }

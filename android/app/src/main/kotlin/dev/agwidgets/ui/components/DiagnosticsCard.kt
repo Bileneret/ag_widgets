@@ -23,6 +23,7 @@ internal fun DiagnosticsCard(
     lastError: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onChangeMode: (() -> Unit)? = null,
 ) {
     GlassCard {
         Row(
@@ -44,6 +45,17 @@ internal fun DiagnosticsCard(
                     letterSpacing = (-0.2).sp,
                     color = AgTheme.colors.text,
                 )
+            }
+            if (onChangeMode != null) {
+                TextButton(onClick = onChangeMode) {
+                    Text(
+                        text = "РЕЖИМ",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        letterSpacing = 0.8.sp,
+                        color = AgTheme.colors.muted,
+                    )
+                }
             }
             TextButton(onClick = onToggle) {
                 Text(

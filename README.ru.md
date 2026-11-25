@@ -14,7 +14,7 @@ AG Widgets сделан ровно для двух задач:
 У обоих клиентов один визуальный язык (чёрное стекло, тёплый кремовый акцент, Space Grotesk + моно-лейблы, светлая и тёмная темы):
 
 1. **Десктоп-виджет** — Electron на Windows. Показывает контекст открытого чата, квоты 5ч/неделя, ваучеры и баланс ZCode.
-2. **Android-приложение + виджет 4×2** — Kotlin/Jetpack Glance. Работает при выключенном ПК: читает приватный ntfy-канал, сам опрашивает `zcode.z.ai` и ставит локальное напоминание ко времени сброса квоты.
+2. **Android-приложение + виджет 4×2** — Kotlin/Jetpack Glance. Две сборки: **AG Widgets** (Antigravity + ZCode) и **AG Context** (только Antigravity). Работает при выключенном ПК для ZCode: читает приватный ntfy-канал, сам опрашивает `zcode.z.ai` и ставит локальное напоминание ко времени сброса квоты.
 
 English documentation: [README.md](README.md).
 
@@ -29,6 +29,21 @@ English documentation: [README.md](README.md).
 | **03 · Доступ** | Ваучеры ZCode, баланс, план, вход через OAuth | Прямой опрос ZCode без ПК |
 
 Десктоп-виджет фиксирован 400×640, по умолчанию поверх всех окон и живёт в трее. Android-виджет — изменяемая Glance-поверхность 4×2 со светлой и тёмной темой.
+
+### Две Android-сборки
+
+Один код даёт два подписанных APK. У них разные applicationId, поэтому они могут стоять на телефоне одновременно.
+
+| | **AG Widgets** | **AG Context** |
+|---|---|---|
+| Контекст и лимиты Antigravity | да | да |
+| Ваучеры, баланс и OAuth ZCode | да | **нет** |
+| Работает без ПК | да, для ZCode | нет |
+| package | `dev.agwidgets` | `dev.agwidgets.context` |
+
+**AG Widgets** — рекомендуемая сборка: ZCode работает сразу без ПК, а Antigravity можно подключить позже. **AG Context** — для тех, кому нужен только Antigravity и кто не хочет в APK ни ZCode-клиента, ни хранения токена, ни запросов к ZCode.
+
+Если поставить обе сборки и подключить их к одному ntfy-топику, уведомления о сбросе будут дублироваться. Для канала ПК используйте одну сборку.
 
 ---
 
@@ -211,34 +226,53 @@ Antigravity CLI отдаёт точное `context_window_size`; statusLine кэ
 
 ## Android
 
+### Скачать
+
+Обе сборки — подписанные community-APK без личного ntfy-топика.
+
+- **AG Widgets 1.0.0** (рекомендуется, Antigravity + ZCode):
+  https://github.com/DmytroHnylytskyi/ag_widgets/releases/latest/download/AG-Widgets-1.0.0.apk
+- **AG Context 1.0.0** (только Antigravity):
+  https://github.com/DmytroHnylytskyi/ag_widgets/releases/latest/download/AG-Context-1.0.0.apk
+
 ### Сборка
 
-Нужны JDK 17 и Android SDK.
+Нужны JDK 17 и Android SDK. Release-сборка подписывается ключом проекта, который хранится вне репозитория; см. [docs/RELEASING.md](docs/RELEASING.md).
 
 ```powershell
 cd android
 
-# Публичная сборка: без вшитого топика.
-.\gradlew.bat assembleDebug -Pcommunity=true
+# Оба подписанных публичных релиза: без вшитого топика.
+.\gradlew.bat :app:assembleFullRelease :app:assembleContextRelease `
+  -Pcommunity=true --no-configuration-cache
 
-# Личная сборка: берёт agw.topic из local.properties (файл в .gitignore).
-.\gradlew.bat assembleDebug
+# Локальные debug-сборки.
+.\gradlew.bat :app:assembleFullDebug :app:assembleContextDebug -Pcommunity=true
+
+# Личная full-сборка: берёт agw.topic из local.properties (файл в .gitignore).
+.\gradlew.bat :app:assembleFullRelease --no-configuration-cache
 ```
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза скопируйте community-сборку в `dist/ag-widgets-community.apk` (`dist/` в `.gitignore`).
+Выходы:
+
+```text
+android/app/build/outputs/apk/full/release/app-full-release.apk
+android/app/build/outputs/apk/context/release/app-context-release.apk
+```
 
 **Перед публикацией APK** всегда собирайте с `-Pcommunity=true`, чтобы личный ntfy-топик не попал в `BuildConfig`.
 
 ### Первый запуск
 
 1. Откройте приложение и разрешите уведомления.
-2. Вставьте `ntfy_topic`, который напечатал установщик.
-3. Нажмите **Войти в Z.ai** для автономной проверки ваучеров и баланса.
-4. Нажмите **Обновить**, затем **Добавить виджет на экран**.
+2. Выберите режим:
+   - **Только ZCode** (AG Widgets): нажмите **Войти в Z.ai**. ПК не нужен.
+   - **С компьютером**: вставьте `ntfy_topic`, который напечатал установщик.
+3. Нажмите **Обновить**, затем **Добавить виджет на экран**.
 
 Приложение обновляется каждые 15 минут (минимум WorkManager). Вручную: кнопка в приложении, **⟳** в карточке контекста или тап по виджету. После переключения чата на ПК десктоп публикует новый активный чат сразу; на телефоне нажмите **⟳**, чтобы подхватить его.
 
-> applicationId — `dev.agwidgets`. Если раньше было установлено приватное приложение с другим id, сначала удалите его: Android не переносит настройки между applicationId.
+> applicationId — `dev.agwidgets` (AG Widgets) и `dev.agwidgets.context` (AG Context). Обе сборки могут стоять одновременно. Старое приватное приложение `dev.dmitr.agwidgets` нужно удалить: Android не переносит настройки между applicationId.
 
 Кнопка **☀/☾** в шапке переключает светлую и тёмную тему; виджет 4×2 следует за приложением. По умолчанию тема системная.
 
@@ -250,7 +284,8 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза с
 - `ntfy_topic` — 96 случайных бит, хранится только в `%LOCALAPPDATA%\ag-widgets\config.json`.
 - Токен ZCode хранится локально в `secrets.json` (ПК) или приватных SharedPreferences (Android).
 - На Android `allowBackup="false"`: prefs не попадают в облачный бэкап.
-- Community-APK не содержит ни топика, ни токена. Personal-APK вшивает только топик из `local.properties`.
+- Community-APK не содержат ни топика, ни токена. Personal-APK вшивает только топик из `local.properties`.
+- В **AG Context** нет ZCode-клиента, OAuth, хранения токена и запросов к ZCode.
 
 ---
 
@@ -260,23 +295,31 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза с
 # Python: окна моделей, пороги, парсинг ZCode, детект изменений
 python -m unittest discover -s tests -p "test_*.py" -v
 
-# Android: парсинг статуса и слияние ПК/телефон
+# Android: парсинг статуса и слияние ПК/телефон, оба flavor'а
 cd android
-.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:testFullDebugUnitTest :app:testContextDebugUnitTest
 
-# Community-сборка
-.\gradlew.bat assembleDebug -Pcommunity=true
+# Обе community-сборки
+.\gradlew.bat :app:assembleFullRelease :app:assembleContextRelease `
+  -Pcommunity=true --no-configuration-cache
 ```
 
 ---
 
 ## Ограничения
 
+- **AG Context**: нужен коллектор на ПК для всего, режима «только ZCode» в нём нет. **AG Widgets** требует ПК только для карточек Antigravity; ZCode работает автономно.
 - **Acrylic** — только Windows 11 22H2+. На Windows 10 останется полупрозрачный фон без системного блюра.
 - Android-виджет не может размывать обои системно — используется стеклянная имитация (градиент, обводка, блик).
 - **WorkManager** — best-effort: минимум 15 минут, экономия батареи может растянуть интервал. Напоминания о сбросе ставятся локально, но не гарантируются до секунды.
 - **ZCode API** — открытый протокол, которым пользуется ZCode; эндпоинты могут меняться. Fallback-скрапинга нет.
 - Окна моделей могут обновляться. Значение CLI подхватывается автоматически; встроенная таблица — только запасной вариант.
+
+---
+
+## Дисклеймер
+
+AG Widgets — неофициальный общественный проект. Он не связан с Google или Z.ai, не одобрен и не поддерживается ими. Antigravity и ZCode — товарные знаки их владельцев.
 
 ---
 

@@ -15,6 +15,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.ui.statusAgeMinutes
@@ -50,7 +51,7 @@ internal fun Header(
                 color = AgTheme.colors.text,
             )
             Text(
-                text = "ANTIGRAVITY · ZCODE · 001",
+                text = if (BuildConfig.ZCODE_ENABLED) "ANTIGRAVITY · ZCODE · 001" else "ANTIGRAVITY · 001",
                 fontFamily = FontFamily.Monospace,
                 fontSize = 8.sp,
                 letterSpacing = 1.1.sp,

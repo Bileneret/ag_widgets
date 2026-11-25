@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.StatusStore
@@ -25,7 +26,11 @@ object Notifier {
                 "Лимиты",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Уведомления об обновлении квот Antigravity и ваучерах ZCode"
+                description = if (BuildConfig.ZCODE_ENABLED) {
+                    "Уведомления об обновлении квот Antigravity и ваучерах ZCode"
+                } else {
+                    "Уведомления об обновлении квот Antigravity"
+                }
             }
             mgr.createNotificationChannel(channel)
         }
@@ -58,10 +63,11 @@ object Notifier {
             }
         }
 
-        checkZCodeCouponTransition(context, prev.zcode, curr.zcode)
+        if (BuildConfig.ZCODE_ENABLED) checkZCodeCouponTransition(context, prev.zcode, curr.zcode)
     }
 
     fun checkZCodeCouponTransition(context: Context, prev: ZCodeStatus?, curr: ZCodeStatus?) {
+        if (!BuildConfig.ZCODE_ENABLED) return
         if (curr == null || !curr.couponVisible) return
         if (!canPostNotifications(context)) return
         ensureChannel(context)

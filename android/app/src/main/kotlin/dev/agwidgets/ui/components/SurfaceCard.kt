@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.agwidgets.BuildConfig
 import dev.agwidgets.ui.theme.AgTheme
 
 @Composable
@@ -21,8 +22,13 @@ internal fun SurfaceCard(onPinWidget: () -> Unit) {
             chipColor = AgTheme.colors.violet,
         )
         Text(
-            text = "Кольца 5h/неделя, обратный отсчёт, статус ZCode и контекст ПК. " +
-                "Уведомления о сбросе приходят без компьютера.",
+            text = if (BuildConfig.ZCODE_ENABLED) {
+                "Кольца 5h/неделя, обратный отсчёт, статус ZCode и контекст ПК. " +
+                    "Уведомления о сбросе приходят без компьютера."
+            } else {
+                "Кольца 5h/неделя, обратный отсчёт и контекст ПК. " +
+                    "Уведомления о сбросе приходят без компьютера."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = AgTheme.colors.muted,
         )
