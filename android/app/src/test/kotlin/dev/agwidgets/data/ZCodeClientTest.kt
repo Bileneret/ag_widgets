@@ -161,6 +161,17 @@ class ZCodeClientTest {
     }
 
     @Test
+    fun touchForbiddenAndBusiness401AreAuthExpired() {
+        val body = json("""{"code": 0, "data": {"deliveries": []}}""")
+        assertEquals("auth_expired", parseTouchResponse(body, 403).errorKind)
+
+        val biz401 = json("""{"code": 401, "data": {}}""")
+        val res = parseTouchResponse(biz401, 200)
+        assertEquals(ZCodeStatus.COUPON_UNKNOWN, res.couponState)
+        assertEquals("auth_expired", res.errorKind)
+    }
+
+    @Test
     fun touchNullBodyIsUnknownWithoutThrowing() {
         val result = parseTouchResponse(null, 200)
 
@@ -453,6 +464,15 @@ class ZCodeClientTest {
     }
 
     @Test
+    fun balanceForbiddenAndBusiness401MarkAuthExpired() {
+        val body = json("""{"code": 0, "data": {}}""")
+        assertEquals("auth_expired", parseBalanceResponse(body, 403, FIXED_NOW_SEC).errorKind)
+
+        val biz401 = json("""{"code": 401, "data": {}}""")
+        assertEquals("auth_expired", parseBalanceResponse(biz401, 200, FIXED_NOW_SEC).errorKind)
+    }
+
+    @Test
     fun balanceRateLimitedMarksRateLimited() {
         val body = json("""{"code": 0, "data": {}}""")
 
@@ -554,6 +574,7 @@ class ZCodeClientTest {
             "https://z.ai/oauth?x=1",
             "https://chat.z.ai/cli",
             "https://z.ai:443/x",
+            "  https://z.ai/oauth  ",
         )
 
         for (raw in accepted) {

@@ -143,8 +143,30 @@ object ZCodeClient {
         try {
             val base = previous?.copy() ?: ZCodeStatus(running = true, couponVisible = false, method = "api")
 
-            // 401 from either endpoint proves the token is no longer valid.
-            if (touchCode == 401 || balanceCode == 401) {
+            // Full transport outage: neither endpoint returned an HTTP status.
+            if (touchCode == 0 && balanceCode == 0) {
+                return@withContext Result.success(
+                    base.copy(
+                        running = false,
+                        couponVisible = false,
+                        method = "api",
+                        authOk = null,
+                        networkError = true,
+                        couponState = ZCodeStatus.COUPON_UNKNOWN,
+                        errorKind = "network",
+                        checkedAt = nowIso
+                    )
+                )
+            }
+
+            val touch = parseTouchResponse(touchBody, touchCode)
+            val balance = parseBalanceResponse(balanceBody, balanceCode)
+            val authExpired = touchCode == 401 || touchCode == 403 ||
+                balanceCode == 401 || balanceCode == 403 ||
+                touch.errorKind == "auth_expired" || balance.errorKind == "auth_expired"
+
+            // 401/403 (or business code 401) from either endpoint proves the token is invalid.
+            if (authExpired) {
                 return@withContext Result.success(
                     base.copy(
                         running = true,
@@ -159,26 +181,6 @@ object ZCodeClient {
                 )
             }
 
-            // Neither endpoint returned a usable HTTP payload: a full outage.
-            val bothUnavailable = (touchCode !in 200..299 && balanceCode !in 200..299) ||
-                (touchBody == null && balanceBody == null)
-            if (bothUnavailable) {
-                return@withContext Result.success(
-                    base.copy(
-                        running = true,
-                        couponVisible = false,
-                        method = "api",
-                        authOk = null,
-                        networkError = true,
-                        couponState = ZCodeStatus.COUPON_UNKNOWN,
-                        errorKind = "network",
-                        checkedAt = nowIso
-                    )
-                )
-            }
-
-            val touch = parseTouchResponse(touchBody, touchCode)
-            val balance = parseBalanceResponse(balanceBody, balanceCode)
             val touchOk = touch.errorKind == null
             val balanceOk = balance.errorKind == null
             val anyHttpOk = (touchCode in 200..299 && touchBody != null) ||
@@ -197,7 +199,7 @@ object ZCodeClient {
                     remainingUnits = if (balanceOk) balance.remainingUnits else base.remainingUnits,
                     totalUnits = if (balanceOk) balance.totalUnits else base.totalUnits,
                     endsAt = if (balanceOk) balance.endsAt else base.endsAt,
-                    planName = (if (balanceOk) balance.planName else "").ifEmpty { base.planName },
+                    planName = if (balanceOk) balance.planName else base.planName,
                     errorKind = pickErrorKind(touch.errorKind, balance.errorKind),
                     checkedAt = nowIso
                 )
@@ -207,7 +209,7 @@ object ZCodeClient {
             val base = previous?.copy() ?: ZCodeStatus(running = true, couponVisible = false, method = "api")
             Result.success(
                 base.copy(
-                    running = true,
+                    running = false,
                     couponVisible = false,
                     method = "api",
                     authOk = null,
@@ -231,6 +233,7 @@ object ZCodeClient {
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
+                instanceFollowRedirects = false
                 connectTimeout = 15000
                 readTimeout = 15000
                 setRequestProperty("Accept", "application/json")
@@ -251,6 +254,7 @@ object ZCodeClient {
         return try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
+                instanceFollowRedirects = false
                 doOutput = true
                 connectTimeout = 15000
                 readTimeout = 15000
@@ -284,7 +288,11 @@ internal fun parseTouchResponse(body: JSONObject?, httpCode: Int): TouchResult {
         if (body == null) {
             return TouchResult(ZCodeStatus.COUPON_UNKNOWN, errorKind = "parse_failed")
         }
-        if (body.optInt("code", -1) != 0) {
+        val businessCode = body.optInt("code", -1)
+        if (businessCode == 401) {
+            return TouchResult(ZCodeStatus.COUPON_UNKNOWN, errorKind = "auth_expired")
+        }
+        if (businessCode != 0) {
             return TouchResult(ZCodeStatus.COUPON_UNKNOWN, errorKind = "api_changed")
         }
         val deliveries = body.optJSONObject("data")?.optJSONArray("deliveries")
@@ -326,7 +334,11 @@ internal fun parseBalanceResponse(
         if (body == null) {
             return BalanceResult(errorKind = "parse_failed")
         }
-        if (body.optInt("code", -1) != 0 && !body.optBoolean("success", false)) {
+        val businessCode = body.optInt("code", -1)
+        if (businessCode == 401) {
+            return BalanceResult(errorKind = "auth_expired")
+        }
+        if (businessCode != 0 && !body.optBoolean("success", false)) {
             return BalanceResult(errorKind = "api_changed")
         }
         val data = body.optJSONObject("data") ?: return BalanceResult()
@@ -408,7 +420,9 @@ internal fun parseBalanceResponse(
  * with the default port. Returns the normalized URL or null when untrusted.
  */
 internal fun isTrustedAuthorizeUrl(rawUrl: String): String? {
-    val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) return null
+    val uri = runCatching { URI(trimmed) }.getOrNull() ?: return null
     val scheme = uri.scheme ?: return null
     if (!scheme.equals("https", ignoreCase = true)) return null
     val host = uri.host ?: return null
@@ -420,7 +434,7 @@ internal fun isTrustedAuthorizeUrl(rawUrl: String): String? {
 
 /** Maps an HTTP status onto the shared error-kind taxonomy. */
 private fun httpErrorKind(httpCode: Int): String? = when {
-    httpCode == 401 -> "auth_expired"
+    httpCode == 401 || httpCode == 403 -> "auth_expired"
     httpCode == 429 -> "rate_limited"
     httpCode in 500..599 -> "server_error"
     httpCode !in 200..299 -> "network"

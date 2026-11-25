@@ -52,7 +52,9 @@ object StatusStore {
             val trimmed = plaintext.trim()
             if (trimmed.isNotEmpty() && !cipher.isEncrypted(stored)) {
                 // Transparent migration of topics written by older releases.
-                preferences.edit().putString(KEY_TOPIC, cipher.encrypt(trimmed)).apply()
+                runCatching {
+                    preferences.edit().putString(KEY_TOPIC, cipher.encrypt(trimmed)).apply()
+                }.onFailure { safeWarn("StatusStore", "Failed to migrate topic to encrypted storage", it) }
             }
             return@synchronized trimmed
         }
@@ -82,7 +84,9 @@ object StatusStore {
         val trimmed = plaintext.trim()
         if (trimmed.isNotEmpty() && !cipher.isEncrypted(stored)) {
             // Transparent migration of tokens written by older releases.
-            preferences.edit().putString(KEY_ZCODE_TOKEN, cipher.encrypt(trimmed)).apply()
+            runCatching {
+                preferences.edit().putString(KEY_ZCODE_TOKEN, cipher.encrypt(trimmed)).apply()
+            }.onFailure { safeWarn("StatusStore", "Failed to migrate ZCode token to encrypted storage", it) }
         }
         return@synchronized trimmed
     }
@@ -101,10 +105,12 @@ object StatusStore {
     }
 
     fun clearZCodeToken(context: Context) {
-        prefs(context).edit()
-            .remove(KEY_ZCODE_TOKEN)
-            .remove(KEY_DIRECT_ZCODE)
-            .apply()
+        synchronized(lock) {
+            prefs(context).edit()
+                .remove(KEY_ZCODE_TOKEN)
+                .remove(KEY_DIRECT_ZCODE)
+                .apply()
+        }
     }
 
     fun getOrCreateDeviceMid(context: Context): String = synchronized(lock) {

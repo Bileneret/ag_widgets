@@ -38,16 +38,23 @@ object NtfyClient {
                 return@withContext Result.failure(IllegalStateException("В теме пока нет сообщений"))
             }
             // Pick the newest status message, skipping unrelated or malformed events.
-            val messageLine = lines.asReversed().firstOrNull { isStatusMessage(it) }
+            val payload = extractLatestStatusPayload(lines)
                 ?: return@withContext Result.failure(IllegalStateException("Нет сообщений статуса в теме ntfy"))
 
-            val payload = JSONObject(messageLine).optString("message", "")
             Result.success(payload)
         } catch (e: Exception) {
             Result.failure(e)
         } finally {
             conn?.disconnect()
         }
+    }
+
+    /** Picks the newest valid status payload from an ntfy NDJSON response. */
+    internal fun extractLatestStatusPayload(lines: List<String>): String? {
+        val messageLine = lines.asReversed().firstOrNull { isStatusMessage(it) } ?: return null
+        return runCatching { JSONObject(messageLine).optString("message", "") }
+            .getOrNull()
+            ?.takeIf { it.isNotEmpty() }
     }
 
     /**

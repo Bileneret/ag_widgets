@@ -34,6 +34,9 @@ class FormatParityTest {
 
     @Test
     fun formatWindowUsesKilobytesBelowOneMegabyte() {
+        assertEquals("512", formatWindow(512))
+        assertEquals("1023", formatWindow(1_023))
+        assertEquals("1K", formatWindow(1_024))
         assertEquals("512K", formatWindow(524_288))
         assertEquals("128K", formatWindow(131_072))
     }

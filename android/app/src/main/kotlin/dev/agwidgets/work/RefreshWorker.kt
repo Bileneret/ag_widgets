@@ -62,6 +62,20 @@ class RefreshWorker(
             zRes.onSuccess { zStatus ->
                 val (prevZ, currZ) = StatusStore.saveDirectZCode(applicationContext, zStatus)
                 Notifier.checkZCodeCouponTransition(applicationContext, prevZ, currZ)
+                if (zStatus.networkError || zStatus.errorKind != null) {
+                    val reason = when (zStatus.errorKind) {
+                        "auth_expired" -> "ZCode: токен истёк"
+                        "rate_limited" -> "ZCode: лимит запросов (429)"
+                        "server_error" -> "ZCode: ошибка сервера"
+                        "api_changed" -> "ZCode: схема API изменилась"
+                        "parse_failed" -> "ZCode: не удалось разобрать ответ"
+                        else -> "ZCode: нет связи"
+                    }
+                    StatusStore.saveError(applicationContext, reason)
+                    if (zStatus.networkError || zStatus.errorKind in RETRYABLE_ZCODE_ERRORS) {
+                        anyNetworkFailure = true
+                    }
+                }
             }.onFailure { err ->
                 val nowIso = java.time.Instant.now().toString()
                 val fallback = previous ?: ZCodeStatus(running = true, couponVisible = false, method = "api")
@@ -88,6 +102,7 @@ class RefreshWorker(
     companion object {
         private const val PERIODIC_WORK_NAME = "agw_periodic_refresh"
         private const val IMMEDIATE_WORK_NAME = "agw_immediate_refresh"
+        private val RETRYABLE_ZCODE_ERRORS = setOf("network", "rate_limited", "server_error")
 
         fun schedulePeriodic(context: Context) {
             val constraints = Constraints.Builder()

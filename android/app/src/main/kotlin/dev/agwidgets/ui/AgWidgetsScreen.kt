@@ -120,10 +120,14 @@ internal object OAuthSessionHolder {
                     }
                     is ZCodeOAuthPollResult.Ready -> {
                         StatusStore.setZCodeToken(appContext, poll.token)
+                        RefreshWorker.schedulePeriodic(appContext)
                         val deviceMid = StatusStore.getOrCreateDeviceMid(appContext)
-                        ZCodeClient.fetchStatus(poll.token, deviceMid).onSuccess { fetched ->
+                        val seq = StatusStore.nextZCodeSeq(appContext)
+                        val previous = StatusStore.getDirectZCode(appContext)
+                        ZCodeClient.fetchStatus(poll.token, deviceMid, seq, previous).onSuccess { fetched ->
                             StatusStore.saveDirectZCode(appContext, fetched)
                         }
+                        runCatching { LimitsWidget().updateAll(appContext) }
                         runCatching { onToken(poll.token) }
                         _state.value = OAuthUiState.Ready("Вход выполнен. Автономный мониторинг включён.")
                         return@launch
@@ -159,7 +163,8 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
     var topic by remember { mutableStateOf(StatusStore.getTopic(context)) }
     var zcodeToken by remember { mutableStateOf(StatusStore.getZCodeToken(context)) }
     var lastStatus by remember { mutableStateOf<AgStatus?>(StatusStore.getMergedStatus(context)) }
-    var statusMessage by remember { mutableStateOf(StatusStore.getLastError(context) ?: "") }
+    var lastError by remember { mutableStateOf<String?>(StatusStore.getLastError(context)) }
+    var statusMessage by remember { mutableStateOf(lastError ?: "") }
     var zcodeMessage by remember {
         mutableStateOf(if (zcodeToken.isNotBlank()) "Автономная проверка ZCode активна" else "Не подключено")
     }
@@ -193,12 +198,22 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
         }
     }
 
-    // Pick up background RefreshWorker writes (and their errors) immediately.
+    // Pick up background RefreshWorker writes (and their errors) immediately
+    // without clobbering transient user feedback such as "Тема сохранена".
     DisposableEffect(context) {
-        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            lastStatus = StatusStore.getMergedStatus(context)
-            statusMessage = StatusStore.getLastError(context).orEmpty()
-            nowMs = System.currentTimeMillis()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                "last_json", "direct_zcode_json" -> {
+                    lastStatus = StatusStore.getMergedStatus(context)
+                    nowMs = System.currentTimeMillis()
+                }
+                "last_error" -> {
+                    lastError = StatusStore.getLastError(context)
+                    if (!isRefreshing) {
+                        statusMessage = lastError.orEmpty()
+                    }
+                }
+            }
         }
         StatusStore.registerListener(context, listener)
         onDispose { StatusStore.unregisterListener(context, listener) }
@@ -221,11 +236,25 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
         }
     }
 
+    fun syncPeriodicSchedule() {
+        val hasChannel = StatusStore.getTopic(context).isNotBlank() ||
+            StatusStore.getZCodeToken(context).isNotBlank()
+        if (hasChannel) {
+            RefreshWorker.schedulePeriodic(context)
+        } else {
+            RefreshWorker.cancelPeriodic(context)
+        }
+    }
+
     fun refresh() {
         if (isRefreshing) return
-        StatusStore.setTopic(context, topic)
-        if (zcodeToken.isNotBlank()) StatusStore.setZCodeToken(context, zcodeToken)
-        if (topic.isNotBlank() || zcodeToken.isNotBlank()) RefreshWorker.schedulePeriodic(context)
+        if (topic.trim() != StatusStore.getTopic(context)) {
+            StatusStore.setTopic(context, topic)
+        }
+        if (zcodeToken.isNotBlank() && zcodeToken.trim() != StatusStore.getZCodeToken(context)) {
+            StatusStore.setZCodeToken(context, zcodeToken)
+        }
+        syncPeriodicSchedule()
         isRefreshing = true
         statusMessage = "Обновление..."
         scope.launch {
@@ -244,6 +273,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                             messages.add("ntfy OK")
                         } else {
                             messages.add("ntfy: неверный JSON")
+                            StatusStore.saveError(context, "ntfy: неверный JSON")
                         }
                     },
                     onFailure = { error ->
@@ -256,10 +286,15 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             val token = StatusStore.getZCodeToken(context)
             if (token.isNotBlank()) {
                 val deviceMid = StatusStore.getOrCreateDeviceMid(context)
-                ZCodeClient.fetchStatus(token, deviceMid).fold(
+                val seq = StatusStore.nextZCodeSeq(context)
+                val previousZCode = StatusStore.getDirectZCode(context)
+                ZCodeClient.fetchStatus(token, deviceMid, seq, previousZCode).fold(
                     onSuccess = { zcode ->
                         val (previous, current) = StatusStore.saveDirectZCode(context, zcode)
                         Notifier.checkZCodeCouponTransition(context, previous, current)
+                        val remaining = zcode.remainingUnits
+                        val hasBalance = remaining != null &&
+                            (remaining > 0 || (zcode.totalUnits != null && zcode.totalUnits > 0))
                         zcodeMessage = when {
                             zcode.isCouponUnknown -> when (zcode.errorKind) {
                                 "auth_expired" -> "Токен истёк — войдите снова"
@@ -272,11 +307,15 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                             }
                             zcode.isCouponVisible -> "Ваучер доступен! (${zcode.matched})"
                             zcode.authOk == false -> "Токен истёк — войдите снова"
-                            zcode.remainingUnits != null && zcode.remainingUnits > 0 ->
-                                "Остаток: ${formatUnits(zcode.remainingUnits)}"
+                            hasBalance -> "Остаток: ${formatUnits(remaining)}"
                             else -> "ZCode OK · ваучеров пока нет"
                         }
-                        messages.add("ZCode OK")
+                        if (zcode.networkError || zcode.errorKind != null) {
+                            messages.add("ZCode: $zcodeMessage")
+                            StatusStore.saveError(context, "ZCode: $zcodeMessage")
+                        } else {
+                            messages.add("ZCode OK")
+                        }
                     },
                     onFailure = { error ->
                         messages.add("ZCode: ${error.message}")
@@ -286,6 +325,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             }
 
             lastStatus = StatusStore.getMergedStatus(context)
+            lastError = StatusStore.getLastError(context)
             nowMs = System.currentTimeMillis()
             LimitsWidget().updateAll(context)
             statusMessage = if (messages.isEmpty()) {
@@ -303,7 +343,6 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             zcodeToken = token
             lastStatus = StatusStore.getMergedStatus(context)
             nowMs = System.currentTimeMillis()
-            scope.launch { LimitsWidget().updateAll(context) }
         }
     }
 
@@ -311,6 +350,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
         OAuthSessionHolder.cancel()
         zcodeToken = ""
         StatusStore.clearZCodeToken(context)
+        syncPeriodicSchedule()
         zcodeMessage = "Токен удалён"
         lastStatus = StatusStore.getMergedStatus(context)
         nowMs = System.currentTimeMillis()
@@ -413,8 +453,8 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                 statusMessage = statusMessage,
                 onSave = {
                     StatusStore.setTopic(context, topic)
-                    if (topic.isNotBlank()) RefreshWorker.schedulePeriodic(context)
-                    statusMessage = "Тема сохранена"
+                    syncPeriodicSchedule()
+                    statusMessage = if (topic.isBlank()) "Тема очищена" else "Тема сохранена"
                 },
                 onRefresh = { refresh() },
             )
@@ -428,7 +468,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                 onCancelLogin = { OAuthSessionHolder.cancel() },
                 onSaveToken = {
                     StatusStore.setZCodeToken(context, zcodeToken)
-                    if (zcodeToken.isNotBlank()) RefreshWorker.schedulePeriodic(context)
+                    syncPeriodicSchedule()
                     zcodeMessage = if (zcodeToken.isBlank()) "Токен пуст" else "Токен сохранён"
                     lastStatus = StatusStore.getMergedStatus(context)
                 },
@@ -437,7 +477,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             SurfaceCard(onPinWidget = { pinWidget() })
             DiagnosticsCard(
                 rawJson = lastStatus?.rawJson,
-                lastError = StatusStore.getLastError(context),
+                lastError = lastError,
                 expanded = showDiagnostics,
                 onToggle = { showDiagnostics = !showDiagnostics },
             )

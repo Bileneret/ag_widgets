@@ -176,6 +176,33 @@ class SecretCipherAndNtfyTest {
         )
     }
 
+    @Test
+    fun ntfyFiltersForeignTitlesNonMessagesAndEmptyPayloads() {
+        val validOld = """{"updated_at":"2026-11-25T09:00:00Z"}"""
+        val validNew = """{"updated_at":"2026-11-25T10:00:00Z"}"""
+        val lines = listOf(
+            """{"event":"open","topic":"agw-test"}""",
+            """{"event":"message","title":"ag-widgets-status","message":${org.json.JSONObject.quote(validOld)}}""",
+            """{"event":"message","title":"ag-widgets-status","message":${org.json.JSONObject.quote(validNew)}}""",
+            """{"event":"message","title":"other-app","message":${org.json.JSONObject.quote("""{"updated_at":"2026-11-25T11:00:00Z"}""")}}""",
+            """{"event":"message","title":"ag-widgets-status","message":"{}"}""",
+            """{"event":"keepalive"}""",
+        )
+
+        assertEquals(validNew, NtfyClient.extractLatestStatusPayload(lines))
+    }
+
+    @Test
+    fun ntfyReturnsNullWhenNoValidStatusMessageExists() {
+        val lines = listOf(
+            """{"event":"open"}""",
+            """{"event":"message","title":"foreign","message":"{\"updated_at\":\"2026-11-25T10:00:00Z\"}"}""",
+            """{"event":"message","title":"ag-widgets-status","message":"{}"}""",
+        )
+
+        assertNull(NtfyClient.extractLatestStatusPayload(lines))
+    }
+
     private fun assertRoundTrip(plaintext: String) {
         val encrypted = cipher.encrypt(plaintext)
         assertTrue(

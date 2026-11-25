@@ -89,7 +89,8 @@ internal fun formatWindow(size: Int): String = when {
     size <= 0 -> "—"
     size == 1_048_576 || size == 1_000_000 -> "1M"
     size >= 1_000_000 -> oneDecimal(size / 1_048_576.0) + "M"
-    else -> "${(size / 1024.0).roundToInt()}K"
+    size >= 1_024 -> "${(size / 1024.0).roundToInt()}K"
+    else -> size.toString()
 }
 
 internal fun formatK(value: Int): String = when {

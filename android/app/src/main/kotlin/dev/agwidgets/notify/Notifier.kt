@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import dev.agwidgets.MainActivity
 import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
+import dev.agwidgets.data.QuotaBucket
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeStatus
 import dev.agwidgets.ui.parseInstant
@@ -43,28 +44,15 @@ object Notifier {
 
         for (currBucket in curr.buckets) {
             val prevBucket = prev.buckets.firstOrNull { it.id == currBucket.id } ?: continue
-            val prevFrac = prevBucket.remainingFraction
-            val currFrac = currBucket.remainingFraction
-            val consumed = prevFrac != null && prevFrac.isFinite() && prevFrac < 0.99
-            val grew = currFrac != null && prevFrac != null && currFrac.isFinite() &&
-                (currFrac - prevFrac) >= 0.20
-            val currReset = parseInstant(currBucket.resetTime)
-            val prevReset = parseInstant(prevBucket.resetTime)
-            val resetAdvanced = currReset != null && prevReset != null && currReset.isAfter(prevReset)
-            val resetDropped = currReset != null && prevReset == null && consumed && grew
-
-            if (consumed && (grew || resetAdvanced || resetDropped)) {
-                // Placeholder timestamps (epoch zero) with a full quota are not real resets.
-                if (currFrac != null && currFrac >= 0.99 &&
-                    currReset != null && currReset.epochSecond <= 0L
-                ) {
-                    continue
-                }
+            if (shouldNotifyReset(prevBucket, currBucket)) {
+                val currFrac = currBucket.remainingFraction
                 // Key on the time before the reset so a future timestamp is never marked as notified.
-                val resetKey = prevBucket.resetTime ?: currBucket.resetTime ?: "changed"
+                val resetKey = validResetKey(prevBucket.resetTime)
+                    ?: validResetKey(currBucket.resetTime)
+                    ?: "changed"
                 if (StatusStore.isResetNotified(context, currBucket.id, resetKey)) continue
                 StatusStore.markResetNotified(context, currBucket.id, resetKey)
-                val pct = currFrac?.let { "Доступно: ${(it * 100).roundToInt()}%" }
+                val pct = currFrac?.takeIf { it.isFinite() }?.let { "Доступно: ${(it * 100).roundToInt()}%" }
                     ?: "Лимит сброшен"
                 sendNotification(
                     context,
@@ -105,6 +93,31 @@ object Notifier {
             "Квота $label обновилась",
             "Наступило запланированное время сброса лимита"
         )
+    }
+
+    /**
+     * Pure quota-reset predicate: fires only when the bucket was actually consumed
+     * (`< 99%`) and then either jumped back up (`>= +20%`, including resets where
+     * `agy /usage` switches `reset_time` back to the epoch-zero sentinel) or its
+     * real reset window moved forward while remaining quota increased.
+     */
+    internal fun shouldNotifyReset(prev: QuotaBucket, curr: QuotaBucket): Boolean {
+        val prevFrac = prev.remainingFraction
+        if (prevFrac == null || !prevFrac.isFinite() || prevFrac >= 0.99) return false
+        val currFrac = curr.remainingFraction?.takeIf { it.isFinite() }
+        val grew = currFrac != null && (currFrac - prevFrac) >= 0.20
+        if (grew) return true
+
+        val prevReset = parseInstant(prev.resetTime)?.takeIf { it.epochSecond > 0L }
+        val currReset = parseInstant(curr.resetTime)?.takeIf { it.epochSecond > 0L }
+        val resetAdvanced = prevReset != null && currReset != null && currReset.isAfter(prevReset)
+        val quotaDidNotDrop = currFrac == null || currFrac > prevFrac + 0.01
+        return resetAdvanced && quotaDidNotDrop
+    }
+
+    private fun validResetKey(iso: String?): String? {
+        val instant = parseInstant(iso) ?: return null
+        return if (instant.epochSecond > 0L) iso else null
     }
 
     private fun bucketDisplayName(bucketId: String, kind: String): String {

@@ -149,7 +149,7 @@ private fun WidgetContent(status: AgStatus?, themeMode: String, dark: Boolean) {
                 RefreshIcon(themeMode = themeMode, tint = subtle)
                 Spacer(modifier = GlanceModifier.width(5.dp))
                 Text(
-                    text = formatTimeShort(status?.updatedAt) ?: "—",
+                    text = formatTimeShort(status?.pcUpdatedAt ?: status?.updatedAt) ?: "—",
                     style = TextStyle(
                         color = subtle,
                         fontSize = 9.sp,
@@ -358,7 +358,7 @@ private fun QuotaCell(
             text = formatCountdownShort(bucket?.resetTime, System.currentTimeMillis()) ?: "—",
             style = TextStyle(
                 color = subtle,
-                fontSize = 7.sp,
+                fontSize = 9.sp,
                 fontFamily = FontFamily.Monospace
             ),
             maxLines = 1
@@ -408,7 +408,7 @@ private fun zcodeChip(z: ZCodeStatus?, themeMode: String): Pair<String, ColorPro
         z.method == "api" && z.authOk == false -> "ZCode: нужен вход" to warn
         z.method == "disabled" -> "ZCode не подключён" to neutral
         z.isCouponVisible -> "Ваучер доступен!" to coupon
-        z.remainingUnits != null && z.remainingUnits > 0 ->
+        z.remainingUnits != null && (z.remainingUnits > 0 || (z.totalUnits != null && z.totalUnits > 0)) ->
             "${z.planName.ifBlank { "ZCode" }} ${formatUnits(z.remainingUnits)}" to glm
         !z.running && z.method != "api" -> "ZCode не запущен" to neutral
         else -> "ZCode: нет ваучера" to neutral
