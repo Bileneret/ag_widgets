@@ -1,0 +1,32 @@
+# Personal configuration & secrets (NEVER commit)
+config.json
+secrets.json
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+.pytest_cache/
+
+# Local QA artifacts
+.tmp-qa/
+
+# Node / Electron
+desktop/node_modules/
+desktop/dist/
+
+# Android
+android/local.properties
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/captures/
+android/.idea/
+*.keystore
+*.jks
+
+# Built release artifacts
+dist/

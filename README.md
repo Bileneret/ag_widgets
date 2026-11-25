@@ -1,0 +1,285 @@
+# AG Widgets
+
+**See the context of the Antigravity chat you actually have open — and never miss a ZCode voucher.**
+
+![Desktop widget preview](docs/desktop-preview.jpg)
+
+Antigravity shows 5h/weekly limits as percentages with reset times, but it does not show the context usage of the specific chat you have open — a known gap in the product. ZCode, meanwhile, regularly hands out vouchers for 300–500M tokens; if you do not check every day, a voucher can expire before you notice.
+
+AG Widgets exists for those two jobs:
+
+1. **Show the context of the currently open Antigravity chat.** It detects the open chat from Antigravity's annotation files and displays that chat's model, tokens/window, health zone, and recent conversations — not the last chat that happened to answer.
+2. **Never miss a ZCode voucher.** It polls the ZCode API for vouchers and balance, shows the voucher state on the desktop, and forwards it to the phone even when the PC is off.
+
+Two clients share one visual language (black glass, warm cream accent, Space Grotesk + monospace labels, light/dark themes):
+
+1. **Desktop widget** — Electron on Windows. Shows the open chat's context, 5h/weekly quotas, ZCode vouchers and balance.
+2. **Android app + 4×2 widget** — Kotlin/Jetpack Glance. Works with the PC off: polls a private ntfy channel and `zcode.z.ai` directly, and schedules a local reminder at quota reset time.
+
+Russian documentation: [README.ru.md](README.ru.md).
+
+---
+
+## What it shows
+
+| Card | Desktop | Android |
+|---|---|---|
+| **01 · Context** | Context of the chat open right now: model, tokens/window, health zone, recent chats | 4 quota rings + the PC chat summary |
+| **02 · Limits** | Antigravity 5h/weekly percentages and reset countdown, next to the context | Same data in the 4×2 widget |
+| **03 · Access** | ZCode vouchers, balance, plan, OAuth sign-in | Direct ZCode polling without the PC |
+
+The desktop widget is fixed at 400×640, always-on-top by default, and lives in the tray. The Android widget is a resizable 4×2 Glance surface with light/dark support.
+
+---
+
+## Architecture
+
+```text
+Windows
+  Antigravity hook (PostInvocation/Stop)
+    └─► %LOCALAPPDATA%\ag-widgets\state\context.json
+  Antigravity CLI statusLine
+    ├─► agy_status.json              (quota, plan tier, context window)
+    └─► model_windows_learned.json   (real window reported by the CLI)
+  Collector sidecar (once a minute)
+    ├─ agy -p "/usage" --output-format json   → Antigravity quota
+    ├─ zcode.z.ai marketing/touch + billing   → vouchers and balance
+    └─ POST https://ntfy.sh/<private-topic>   → numbers only, no secrets
+
+Android
+  WorkManager (every 15 minutes, best-effort)
+    ├─ GET ntfy.sh/<topic>/json?poll=1&since=latest → quota + PC context
+    ├─ GET zcode.z.ai (OAuth token)                  → vouchers and balance
+    └─ local reminder near each quota reset_time
+```
+
+### Repository layout
+
+```text
+agwidgets/            Python core (paths, context model, Antigravity, ZCode, ntfy, status)
+collector/            CLI entry points: collector.py, agy_statusline.py, zcode_auth.py
+hook/                 Antigravity hook entry point
+desktop/              Electron app
+  src/main/           paths, storage, window, tray, IPC, collector runner, OAuth
+  src/renderer/       format, context, quotas, zcode, preview, app
+android/              Kotlin app, Glance widget, WorkManager jobs
+tests/                Python unit tests
+docs/                 preview image and context-health notes
+```
+
+Runtime data never lives in the repository:
+
+```text
+%LOCALAPPDATA%\ag-widgets\
+  config.json         runtime configuration (topic, thresholds, overrides)
+  secrets.json        ZCode token and device id
+  state\              context.json, status.json, agy_status.json, learned windows
+```
+
+---
+
+## Requirements
+
+- Windows 10/11 (acrylic blur requires Windows 11 22H2+)
+- Python 3.10+
+- Node.js 22.12+ and npm (Electron 45)
+- [Google Antigravity](https://antigravity.google) with the `agy` CLI on PATH
+- Optional: JDK 17 + Android SDK for the Android app
+
+---
+
+## Install (Windows)
+
+```powershell
+git clone https://github.com/DmytroHnylytskyi/ag_widgets.git ag-widgets
+cd ag-widgets
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The installer:
+
+1. creates `%LOCALAPPDATA%\ag-widgets\config.json` from `config.example.json`;
+2. registers the context hook in `~/.gemini/config/hooks.json`;
+3. installs the collector sidecar (once a minute) and enables it in Antigravity;
+4. configures the Antigravity CLI status line;
+5. installs Electron dependencies;
+6. runs the collector once to create your private ntfy topic;
+7. creates **AG Widgets** shortcuts on the Desktop and in the Start Menu.
+
+Useful flags:
+
+```powershell
+.\install.ps1 -PythonPath "C:\Path\To\python.exe"   # explicit interpreter
+.\install.ps1 -NoShortcut                           # skip shortcuts
+```
+
+> The ntfy topic in `config.json` is a secret. Anyone who knows it can read your published numbers. Do not commit or share it.
+
+### Launch
+
+Double-click the **AG Widgets** shortcut, run `start-widget.vbs`, or:
+
+```powershell
+cd desktop
+npm start
+```
+
+Title-bar controls: **⟳ / F5** refresh, **☀/☾** theme, **⋯** menu, **−** minimize to the taskbar, **×** quit. Right-click opens the same menu; drag the title bar to move the widget.
+
+### ZCode sign-in
+
+The easiest path is the **ВОЙТИ В Z.AI** button in card `03 / ACCESS`. It opens the official Z.ai page and saves the token locally. The same flow is available from the CLI:
+
+```powershell
+python collector\zcode_auth.py            # browser sign-in
+python collector\zcode_auth.py --status   # test the saved token
+python collector\zcode_auth.py --set-token <jwt>
+```
+
+Without a token the card honestly shows "not connected". There is no UI-scraping fallback: voucher state comes only from the ZCode API.
+
+### Configuration
+
+`%LOCALAPPDATA%\ag-widgets\config.json`:
+
+```json
+{
+  "model_windows": {},
+  "context_thresholds": {
+    "yellow_pct": 40,
+    "red_pct": 65
+  }
+}
+```
+
+- `model_windows` — optional manual overrides, e.g. `{ "gemini-4-neon": 524288 }`. Empty means "use the CLI value or the built-in table".
+- `context_thresholds` — percentage of the real window where the card turns yellow/red.
+
+The collector also stores `python_path` here during installation so the widget can run refreshes.
+
+### Design preview without Electron
+
+Open `desktop/index.html` with a mock state:
+
+```text
+desktop/index.html?preview=red
+desktop/index.html?preview=yellow
+desktop/index.html?preview=green
+desktop/index.html?preview=empty
+desktop/index.html?preview=offline
+desktop/index.html?preview=voucher
+desktop/index.html?preview=disabled
+desktop/index.html?preview=summary
+desktop/index.html?preview=red&theme=light
+```
+
+---
+
+## Context health
+
+There is no single "hallucination token count": quality degrades continuously and depends on the task, distractors, and where the fact sits in the prompt.
+
+AG Widgets therefore measures zones relative to the **real** window reported by Antigravity:
+
+| Zone | Threshold | Meaning |
+|---|---:|---|
+| 🟢 OK | < 40% | normal working range |
+| 🟡 Attention | 40–65% | quality on hard tasks is already dropping |
+| 🔴 Risk | > 65% | reliable part of the window is over — run `/compact` |
+
+Absolute examples:
+
+| Model | 🟡 from | 🔴 after |
+|---|---:|---:|
+| Gemini 4 Neon (512K) | ~210K | ~341K |
+| 1M models (Carbon/Argon/Hydrogen, Claude 5.5) | ~419K | ~682K |
+| GPT-OSS 120B (128K) | ~52K | ~85K |
+
+Windows used by default:
+
+| Model | Window |
+|---|---:|
+| Gemini 4 Neon | 512K (1M only in the Gemini API) |
+| Gemini 4 Carbon / Argon / Hydrogen | 1M |
+| Gemini 3.8 Flash | 1M |
+| Claude Opus 5.5 / Sonnet 5.5 | 1M |
+| GPT-OSS 120B | 128K |
+
+The Antigravity CLI reports the exact `context_window_size`; the status line caches it per model and it takes priority over the table. See [docs/CONTEXT_HEALTH.md](docs/CONTEXT_HEALTH.md) for the research and sources.
+
+---
+
+## Android app
+
+### Build
+
+JDK 17 and the Android SDK are required.
+
+```powershell
+cd android
+
+# Public build: no embedded topic.
+.\gradlew.bat assembleDebug -Pcommunity=true
+
+# Personal build: reads agw.topic from local.properties (gitignored).
+.\gradlew.bat assembleDebug
+```
+
+APK: `android/app/build/outputs/apk/debug/app-debug.apk`. For a release, copy the community build to `dist/ag-widgets-community.apk` (`dist/` is gitignored).
+
+**Before publishing an APK**, always build with `-Pcommunity=true` so your personal ntfy topic is not compiled into `BuildConfig`.
+
+### First run
+
+1. Open the app and allow notifications.
+2. Paste the `ntfy_topic` printed by the installer.
+3. Tap **Войти в Z.ai** for autonomous voucher/balance checks.
+4. Tap **Обновить**, then **Добавить виджет на экран**.
+
+The app refreshes every 15 minutes (WorkManager minimum). Manual refresh: the button in the app, **⟳** in the context card, or a tap on the widget. After switching chats on the PC, the desktop publishes the new active chat immediately; press **⟳** on the phone to pick it up.
+
+> The application id is `dev.agwidgets`. If you installed an earlier private build under a different id, uninstall it first; Android does not migrate preferences between application ids.
+
+The header **☀/☾** button switches light/dark mode; the 4×2 widget follows the app. By default the theme follows the system.
+
+---
+
+## Privacy
+
+- ntfy receives quota numbers, token counts, model id, context level, conversation UUID, voucher flag, and a short voucher label (≤100 characters). No email, prompts, chat/project titles, or tokens.
+- `ntfy_topic` is 96 random bits and lives only in `%LOCALAPPDATA%\ag-widgets\config.json`.
+- The ZCode token is stored locally in `secrets.json` (desktop) or private SharedPreferences (Android).
+- Android uses `allowBackup="false"`, so preferences do not go to cloud backup.
+- The community APK contains no topic or token. A personal APK embeds only the topic from `local.properties`.
+
+---
+
+## Tests
+
+```powershell
+# Python: model windows, context thresholds, ZCode parsing, change detection
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# Android: status parsing and PC/phone merge
+cd android
+.\gradlew.bat :app:testDebugUnitTest
+
+# Community build
+.\gradlew.bat assembleDebug -Pcommunity=true
+```
+
+---
+
+## Limitations
+
+- **Acrylic** requires Windows 11 22H2+. Windows 10 falls back to a translucent background without the system blur.
+- The Android widget cannot blur wallpapers system-wide; it uses a glass imitation (gradient, border, highlight).
+- **WorkManager** is best-effort: 15-minute minimum, and battery optimizations can delay it. Reset reminders are scheduled locally but are not guaranteed to the second.
+- **ZCode API** is an open protocol used by ZCode; endpoints can change. There is no scraping fallback.
+- Model windows can change. The CLI value is picked up automatically; the built-in table is only a fallback.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
