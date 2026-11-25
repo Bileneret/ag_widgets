@@ -3,17 +3,48 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import context_model as cm, paths
 
 TAIL_BYTES = 512 * 1024
+FALLBACK_TAIL_BYTES = 4 * 1024 * 1024
 MAX_CONVERSATIONS = 10
+MAX_ERROR_LOG_BYTES = 256 * 1024
+
+# Secrets that must never reach context.json: JWTs, provider keys, ntfy topics.
+SECRET_PATTERNS = (
+    re.compile(r"eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]{4,}){0,2}"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"\bAIza[A-Za-z0-9_-]{6,}"),
+    re.compile(r"\bghp_[A-Za-z0-9]{10,}"),
+    re.compile(r"\bagw-[A-Za-z0-9_-]{6,}"),
+)
+
+
+def _as_int(value: Any) -> int:
+    """Coerce a JSON number to ``int``; bools, non-numbers, NaN, and inf become 0."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return 0
+    if not isinstance(value, (int, float)):
+        return 0
+    try:
+        number = float(value)
+    except OverflowError:  # A JSON literal such as 10**400 has no float value.
+        return 0
+    return int(number) if math.isfinite(number) else 0
 
 
 def load_config() -> dict[str, Any]:
@@ -28,22 +59,21 @@ def load_config() -> dict[str, Any]:
     return {
         "model_windows": windows if isinstance(windows, dict) else {},
         "context_thresholds": thresholds if isinstance(thresholds, dict) else None,
+        "store_prompt_snippet": config.get("store_prompt_snippet") is True,
     }
 
 
-def read_last_usage_entry(transcript_path: Path) -> dict[str, Any] | None:
-    """Read the newest transcript line that contains token usage."""
-    if not transcript_path.exists():
-        return None
+def _iter_tail_lines(handle: Any, size: int, limit: int) -> list[bytes]:
+    """Return the last ``limit`` bytes of ``handle`` as complete lines."""
+    handle.seek(max(0, size - limit))
+    if size > limit:
+        handle.readline()  # Drop a potentially truncated first line.
+    return handle.read().splitlines()
 
-    size = transcript_path.stat().st_size
-    with transcript_path.open("rb") as handle:
-        if size > TAIL_BYTES:
-            handle.seek(size - TAIL_BYTES)
-            handle.readline()  # Drop a potentially truncated first line.
-        raw_lines = handle.read().splitlines()
 
-    for raw in reversed(raw_lines):
+def _scan_lines(lines: list[bytes]) -> dict[str, Any] | None:
+    """Return the newest parsed JSON object that carries token usage."""
+    for raw in reversed(lines):
         if not raw.strip():
             continue
         try:
@@ -53,6 +83,23 @@ def read_last_usage_entry(transcript_path: Path) -> dict[str, Any] | None:
         if isinstance(entry, dict) and entry.get("input_tokens") is not None:
             return entry
     return None
+
+
+def read_last_usage_entry(transcript_path: Path) -> dict[str, Any] | None:
+    """Read the newest transcript line that contains token usage."""
+    if not transcript_path.is_file():
+        return None
+
+    try:
+        size = transcript_path.stat().st_size
+        with transcript_path.open("rb") as handle:
+            entry = _scan_lines(_iter_tail_lines(handle, size, TAIL_BYTES))
+            if entry is None and size > TAIL_BYTES:
+                # Large tool outputs can push the usage line past the first window.
+                entry = _scan_lines(_iter_tail_lines(handle, size, FALLBACK_TAIL_BYTES))
+        return entry
+    except OSError:
+        return None
 
 
 def explicit_window(payload: dict[str, Any]) -> int | None:
@@ -72,12 +119,72 @@ def explicit_window(payload: dict[str, Any]) -> int | None:
     return None
 
 
+def _sanitize_snippet(value: Any, store: bool) -> str:
+    """Keep the prompt snippet short and free of secrets (empty unless opted in)."""
+    if not store:
+        return ""
+    snippet = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    for pattern in SECRET_PATTERNS:
+        snippet = pattern.sub("[redacted]", snippet)
+    return snippet[:60]
+
+
+def _parse_updated_at(value: Any) -> datetime:
+    """Parse an ISO timestamp as an aware UTC datetime; junk sorts as oldest."""
+    text = str(value or "").strip()
+    if text.endswith("Z"):  # ``fromisoformat`` accepts "Z" only from 3.11.
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _prune_conversations(conversations: dict[str, Any], keep_id: str) -> dict[str, Any]:
+    """Keep the newest chats but never evict the conversation being updated."""
+    if len(conversations) <= MAX_CONVERSATIONS:
+        return conversations
+
+    def timestamp(item: tuple[str, Any]) -> datetime:
+        entry = item[1]
+        return _parse_updated_at(entry.get("updated_at") if isinstance(entry, dict) else None)
+
+    ordered = sorted(conversations.items(), key=timestamp, reverse=True)
+    kept = dict(ordered[:MAX_CONVERSATIONS])
+    if keep_id in conversations and keep_id not in kept:
+        kept.pop(ordered[MAX_CONVERSATIONS - 1][0], None)
+        kept[keep_id] = conversations[keep_id]
+    return kept
+
+
+def _context_updater(conversation_id: str, entry: dict[str, Any]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Build an ``update_json`` callback that merges one conversation."""
+
+    def updater(data: dict[str, Any]) -> dict[str, Any]:
+        conversations = data.get("conversations")
+        if not isinstance(conversations, dict):
+            conversations = {}
+        conversations[conversation_id] = entry
+        return {
+            "last": conversation_id,
+            "conversations": _prune_conversations(conversations, conversation_id),
+        }
+
+    return updater
+
+
 def run(raw_input: str) -> None:
     """Persist context usage for one hook invocation."""
     if not raw_input.strip():
         return
 
     payload = json.loads(raw_input)
+    if not isinstance(payload, dict):
+        return
+
     conversation_id = str(payload.get("conversationId") or "").strip()
     transcript_raw = str(payload.get("transcriptPath") or "").strip()
     if not conversation_id or not transcript_raw:
@@ -88,9 +195,7 @@ def run(raw_input: str) -> None:
         return
 
     config = load_config()
-    input_tokens = int(usage.get("input_tokens") or 0)
-    cache_read = int(usage.get("cache_read_tokens") or 0)
-    tokens = input_tokens + cache_read
+    tokens = max(0, _as_int(usage.get("input_tokens")) + _as_int(usage.get("cache_read_tokens")))
     model = str(usage.get("model") or payload.get("modelName") or "").strip()
 
     state_dir = paths.state_dir()
@@ -109,16 +214,10 @@ def run(raw_input: str) -> None:
         first = str(workspace_paths[0]).rstrip("\\/")
         workspace = os.path.basename(first) or first
 
-    snippet = str(payload.get("lastUserInput") or "").replace("\r", " ").replace("\n", " ").strip()[:60]
+    snippet = _sanitize_snippet(payload.get("lastUserInput"), config["store_prompt_snippet"])
     now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
-    context_file = state_dir / "context.json"
-    existing = paths.read_json(context_file) or {}
-    conversations = existing.get("conversations")
-    if not isinstance(conversations, dict):
-        conversations = {}
-
-    conversations[conversation_id] = {
+    entry = {
         "model": model,
         "tokens": tokens,
         "window": window,
@@ -134,15 +233,10 @@ def run(raw_input: str) -> None:
         "updated_at": now_iso,
     }
 
-    if len(conversations) > MAX_CONVERSATIONS:
-        newest = sorted(
-            conversations.items(),
-            key=lambda item: str(item[1].get("updated_at") or "") if isinstance(item[1], dict) else "",
-            reverse=True,
-        )[:MAX_CONVERSATIONS]
-        conversations = dict(newest)
-
-    paths.write_json(context_file, {"last": conversation_id, "conversations": conversations})
+    try:
+        paths.update_json(state_dir / "context.json", _context_updater(conversation_id, entry))
+    except (OSError, paths.ConfigReadError):
+        return
 
 
 def main() -> None:
@@ -152,6 +246,11 @@ def main() -> None:
     except Exception:
         try:
             error_log = paths.state_dir() / "hook_errors.log"
+            try:
+                if error_log.stat().st_size > MAX_ERROR_LOG_BYTES:
+                    os.replace(error_log, error_log.with_name("hook_errors.log.1"))
+            except OSError:
+                pass
             timestamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
             with error_log.open("a", encoding="utf-8") as handle:
                 handle.write(f"[{timestamp}]\n{traceback.format_exc()}\n")

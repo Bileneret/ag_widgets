@@ -9,6 +9,15 @@ __pycache__/
 *.log
 .venv/
 .pytest_cache/
+*.tmp
+status.json
+context.json
+publish_state.json
+zcode_api_cache.json
+agy_status.json
+agy_last.json
+model_windows_learned.json
+*.lock
 
 # Local QA artifacts
 .tmp-qa/

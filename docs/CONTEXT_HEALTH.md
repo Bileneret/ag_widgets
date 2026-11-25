@@ -8,7 +8,6 @@ AG Widgets does not try to predict a "hallucination token count". Research shows
 - **RULER** ([arXiv 2404.06654](https://arxiv.org/abs/2404.06654)): only about half of models claiming 32K+ keep quality at 32K; effective context is typically 50–65% of the advertised size.
 - **Critical thresholds** ([arXiv 2601.15300](https://arxiv.org/abs/2601.15300)): the tested model collapsed at 40–50% of its maximum window, with F1 dropping from 0.55 to 0.30.
 - **Chroma Context Rot** (2025): all 18 tested models degrade as input grows, long before the window is full; distractors accelerate the fall.
-- Antigravity itself exposes `exceeds_200k_tokens`: 200K is its own long-context warning boundary.
 
 Defaults used by AG Widgets:
 
@@ -16,7 +15,7 @@ Defaults used by AG Widgets:
 |---|---:|---|
 | 🟢 OK | < 40% | normal working range |
 | 🟡 Attention | 40–65% | quality on hard tasks is already dropping |
-| 🔴 Risk | > 65% | the reliable part of the window is over |
+| 🔴 Risk | >= 65% | the reliable part of the window is over |
 
 For important work, compact earlier — around 100–200K even on a 1M window. Both percentages are configurable in `%LOCALAPPDATA%\ag-widgets\config.json`:
 
@@ -49,19 +48,24 @@ Absolute zone boundaries:
 | Model | 🟡 from | 🔴 after |
 |---|---:|---:|
 | Neon (512K) | ~210K | ~341K |
-| 1M models | ~419K | ~682K |
+| Gemini 1M models (1,048,576) | ~419K | ~682K |
+| Claude 5.5 (1,000,000) | 400K | 650K |
 | GPT-OSS (128K) | ~52K | ~85K |
 
 ## How the window is resolved
 
 Priority, highest first:
 
-1. `contextWindowSize` / `context_window_size` from the Antigravity hook payload (`payload`).
-2. `model_windows` in the runtime config (`config`).
+1. An explicit size from the Antigravity hook payload: `contextWindowSize`, `context_window_size`, `maxContextTokens`, or `max_context_tokens`, as well as a nested `contextWindow` / `context_window` object with `context_window_size`, `size`, `max_tokens`, or `total_tokens`.
+2. `model_windows` in the runtime config (`config.json`).
 3. `context_window.context_window_size` cached from the CLI status line in `model_windows_learned.json` (`cli`).
 4. Built-in table in `agwidgets/context_model.py` (`table`).
 
+`config.json` and `model_windows_learned.json` are always re-read on every calculation, so their values win over the window saved earlier in `context.json`; changing either file takes effect immediately for existing conversations.
+
 If Google changes a window, the CLI value is picked up automatically and wins over the table. For an unknown model with no CLI value, the widget reports `unknown` instead of inventing a number.
+
+Health levels are reported as `green` (OK zone), `yellow` (attention), `red` (risk), and `unknown` when the window size is not known.
 
 ## Sources
 
