@@ -326,6 +326,24 @@ class RefreshQuotaTests(TempDirTestCase):
         self.assertEqual(data["last_ts"], 111.0)
         self.assertGreater(data["last_attempt_ts"], 111.0)
 
+    def test_backward_clock_jump_does_not_freeze_refresh(self):
+        future_ts = time.time() + 3600.0
+        self.write_json(
+            "agy_last.json",
+            {
+                "last_ts": future_ts,
+                "last_attempt_ts": future_ts,
+                "consecutive_failures": 0,
+                "last_error": None,
+            },
+        )
+        run_mock = mock.Mock(return_value=_proc())
+        with mock.patch.object(
+            antigravity, "find_executable", return_value="agy"
+        ), mock.patch.object(antigravity.subprocess, "run", run_mock):
+            self.assertTrue(antigravity.refresh_quota(self.state_dir))
+        run_mock.assert_called_once()
+
     def test_timeout_records_failure(self):
         self._last_with_failure()
         run_mock = mock.Mock(

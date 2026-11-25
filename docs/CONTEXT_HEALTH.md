@@ -65,7 +65,7 @@ Priority, highest first:
 
 If Google changes a window, the CLI value is picked up automatically and wins over the table. For an unknown model with no CLI value, the widget reports `unknown` instead of inventing a number.
 
-Health levels are reported as `ok` (green zone), `warn` (attention), `risk` (risk), and `unknown` when the window size is not known.
+Health levels are reported as `green` (OK zone), `yellow` (attention), `red` (risk), and `unknown` when the window size is not known.
 
 ## Sources
 

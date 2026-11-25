@@ -284,14 +284,31 @@ class ExtractContextSummaryTests(HookTestCase):
         )
         return self.summary(None)["level"]
 
-    def test_summary_level_ok(self):
-        self.assertEqual(self.level_for(100_000), "ok")
+    def test_summary_level_green(self):
+        self.assertEqual(self.level_for(100_000), "green")
 
-    def test_summary_level_warn(self):
-        self.assertEqual(self.level_for(210_000), "warn")
+    def test_summary_level_yellow(self):
+        self.assertEqual(self.level_for(210_000), "yellow")
 
-    def test_summary_level_risk(self):
-        self.assertEqual(self.level_for(341_000), "risk")
+    def test_summary_level_red(self):
+        self.assertEqual(self.level_for(341_000), "red")
+
+    def test_summary_preserves_explicit_payload_window_for_unknown_model(self):
+        self.write_context(
+            {
+                "conv-1": {
+                    "model": "brand-new-unknown-model",
+                    "tokens": 100_000,
+                    "window": 200_000,
+                    "window_source": "payload",
+                }
+            },
+            "conv-1",
+        )
+        summary = self.summary(None)
+        self.assertEqual(summary["window"], 200_000)
+        self.assertEqual(summary["window_source"], "payload")
+        self.assertEqual(summary["level"], "yellow")
 
 
 class ReadLastUsageEntryTests(HookTestCase):

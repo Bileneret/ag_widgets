@@ -134,7 +134,7 @@ class ShrinkTests(unittest.TestCase):
                 "tokens": 100,
                 "window": 524288,
                 "pct": 0.02,
-                "level": "ok",
+                "level": "green",
                 "window_source": "w" * 1200,
             },
         }
@@ -162,7 +162,7 @@ class ShrinkTests(unittest.TestCase):
                 "tokens": 10,
                 "window": 100,
                 "pct": 10.0,
-                "level": "ok",
+                "level": "green",
                 "window_source": "w" * 4000,
                 "notes": "n" * 4000,
             },

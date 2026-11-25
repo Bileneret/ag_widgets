@@ -63,7 +63,7 @@ class ChangeDetectionTests(unittest.TestCase):
                 "ends_at": None,
                 "plan_name": "",
             },
-            "context_summary": {"level": "ok", "pct": 10.0, "model": "gemini-4-neon-high"},
+            "context_summary": {"level": "green", "pct": 10.0, "model": "gemini-4-neon-high"},
         }
 
     def test_context_percent_change_triggers_publish(self):
@@ -225,14 +225,14 @@ class ActiveContextTests(unittest.TestCase):
                             "model": "gemini-4-neon-high",
                             "tokens": 100,
                             "window": 524288,
-                            "level": "ok",
+                            "level": "green",
                             "updated_at": "2026-01-01T00:00:00+00:00",
                         },
                         "b": {
                             "model": "gemini-4-carbon-high",
                             "tokens": 200,
                             "window": 1048576,
-                            "level": "ok",
+                            "level": "green",
                             "updated_at": "2026-01-01T01:00:00+00:00",
                         },
                     },
@@ -357,7 +357,7 @@ def _context_conversation(**overrides):
         "model": "gemini-4-neon-high",
         "tokens": 1000,
         "window": 524288,
-        "level": "ok",
+        "level": "green",
         "updated_at": "2026-11-25T10:00:00+00:00",
     }
     conversation.update(overrides)

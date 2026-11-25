@@ -219,11 +219,11 @@ def compute_context(
 
     pct = _percent(tokens, window)
     if pct >= thresholds["red_pct"]:
-        level = "risk"
+        level = "red"
     elif pct >= thresholds["yellow_pct"]:
-        level = "warn"
+        level = "yellow"
     else:
-        level = "ok"
+        level = "green"
     return {
         "tokens": tokens,
         "window": window,

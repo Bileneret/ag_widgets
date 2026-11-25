@@ -165,7 +165,7 @@ def refresh_quota(state_dir: Path, force: bool = False) -> bool:
         if failures:
             exponent = min(failures - 1, AGY_FAILURE_BACKOFF_MAX_EXPONENT)
             interval = min(AGY_REFRESH_INTERVAL_SEC, AGY_FAILURE_BACKOFF_BASE_SEC * 2 ** exponent)
-        if now_ts - attempt_ts < interval:
+        if 0 <= now_ts - attempt_ts < interval:
             return False
 
     def fail(reason: str) -> bool:

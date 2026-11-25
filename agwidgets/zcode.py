@@ -456,11 +456,11 @@ def query_zcode_api(token: str, device_mid: str, seq: int = 0) -> dict[str, Any]
 
     if auth_expired:
         auth_ok: bool | None = False
-    elif touch_code == 200 or balance_code == 200:
+    elif (touch_code == 200 and touch_error is None) or (balance_code == 200 and balance_error is None):
         auth_ok = True
     else:
-        # A network outage leaves the token state unknown; 429/5xx are the
-        # server's problem rather than proof that the token expired.
+        # A network outage leaves the token state unknown; 429/5xx or an HTML
+        # captive portal (200 + parse_failed) are not proof of token validity.
         auth_ok = None
 
     return {
@@ -521,7 +521,7 @@ def fetch_cached_status(state_dir: Path, force: bool = False) -> dict[str, Any] 
                 if _is_failed_result(cached_result)
                 else ZCODE_POLL_INTERVAL_SEC
             )
-            if now_ts - cached_ts < ttl:
+            if 0 <= now_ts - cached_ts < ttl:
                 return cached_result
 
     result = query_zcode_api(token, device_mid, seq=seq)

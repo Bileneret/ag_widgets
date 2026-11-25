@@ -129,12 +129,16 @@ def extract_context_summary(state_dir: Path, config: dict[str, Any] | None = Non
 
     tokens = _as_int(conversation.get("tokens"))
     model = conversation.get("model")
+    stored_window = _as_int(conversation.get("window"))
+    explicit_window = stored_window if conversation.get("window_source") == "payload" else None
     # Always re-resolve: config.json edits and freshly learned CLI windows win
-    # over whatever the hook stored earlier.
+    # over cached table/cli/config windows, while explicit hook payload sizes
+    # for unknown models are preserved.
     window, source = cm.resolve_model_window(
         model,
         config_windows=config.get("model_windows"),
         learned_windows=cm.load_learned_windows(state_dir),
+        explicit=explicit_window,
     )
 
     if tokens is not None and window:
@@ -143,7 +147,7 @@ def extract_context_summary(state_dir: Path, config: dict[str, Any] | None = Non
         pct = _as_float(conversation.get("pct"))
         level = "unknown"
         if pct is not None:
-            level = "risk" if pct >= thresholds["red_pct"] else "warn" if pct >= thresholds["yellow_pct"] else "ok"
+            level = "red" if pct >= thresholds["red_pct"] else "yellow" if pct >= thresholds["yellow_pct"] else "green"
         computed = {
             "tokens": tokens,
             "window": window,

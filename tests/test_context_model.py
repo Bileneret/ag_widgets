@@ -127,12 +127,12 @@ class ModelWindowTests(unittest.TestCase):
 class ContextLevelTests(unittest.TestCase):
     def test_neon_boundaries(self):
         ok = cm.compute_context(100_000, 524_288)
-        self.assertEqual(ok["level"], "ok")
+        self.assertEqual(ok["level"], "green")
         self.assertEqual(ok["warn_tokens"], 209_715)
         self.assertEqual(ok["risk_tokens"], 340_787)
 
-        self.assertEqual(cm.compute_context(210_000, 524_288)["level"], "warn")
-        self.assertEqual(cm.compute_context(341_000, 524_288)["level"], "risk")
+        self.assertEqual(cm.compute_context(210_000, 524_288)["level"], "yellow")
+        self.assertEqual(cm.compute_context(341_000, 524_288)["level"], "red")
 
     def test_window_formatting(self):
         self.assertEqual(cm.format_window(524_288), "512K")
@@ -197,15 +197,15 @@ class ContextLevelTests(unittest.TestCase):
         result = cm.compute_context(-5, 524_288)
         self.assertEqual(result["tokens"], 0)
         self.assertEqual(result["pct"], 0.0)
-        self.assertEqual(result["level"], "ok")
+        self.assertEqual(result["level"], "green")
 
     def test_compute_context_bool_tokens(self):
         result = cm.compute_context(True, 524_288)
         self.assertEqual(result["tokens"], 0)
-        self.assertEqual(result["level"], "ok")
+        self.assertEqual(result["level"], "green")
 
-    def test_compute_context_zero_tokens_is_ok(self):
-        self.assertEqual(cm.compute_context(0, 524_288)["level"], "ok")
+    def test_compute_context_zero_tokens_is_green(self):
+        self.assertEqual(cm.compute_context(0, 524_288)["level"], "green")
 
     def test_compute_context_zero_window_unknown(self):
         result = cm.compute_context(100, 0)
@@ -216,9 +216,9 @@ class ContextLevelTests(unittest.TestCase):
 
     def test_compute_context_custom_thresholds(self):
         thresholds = {"yellow_pct": 10.0, "red_pct": 20.0}
-        self.assertEqual(cm.compute_context(99, 1_000, thresholds)["level"], "ok")
-        self.assertEqual(cm.compute_context(100, 1_000, thresholds)["level"], "warn")
-        self.assertEqual(cm.compute_context(200, 1_000, thresholds)["level"], "risk")
+        self.assertEqual(cm.compute_context(99, 1_000, thresholds)["level"], "green")
+        self.assertEqual(cm.compute_context(100, 1_000, thresholds)["level"], "yellow")
+        self.assertEqual(cm.compute_context(200, 1_000, thresholds)["level"], "red")
 
 
 if __name__ == "__main__":

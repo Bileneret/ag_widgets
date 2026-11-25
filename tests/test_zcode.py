@@ -412,6 +412,13 @@ class ZCodeStateTests(unittest.TestCase):
         result = _query_zcode((429, None, None), (500, None, None))
         self.assertEqual(result["error_kind"], "rate_limited")
 
+    def test_both_200_parse_failed_leaves_auth_unknown(self):
+        result = _query_zcode((200, None, "parse_failed"), (200, None, "parse_failed"))
+        self.assertIsNone(result["auth_ok"])
+        self.assertEqual(result["error_kind"], "parse_failed")
+        self.assertEqual(result["coupon_state"], "unknown")
+        self.assertIsNone(result["coupon_visible"])
+
 
 class ZCodeHttpTests(unittest.TestCase):
     @mock.patch("urllib.request.urlopen")
@@ -496,6 +503,25 @@ class ZCodeCacheTests(_IsolatedLocalAppData):
         with mock.patch.object(zcode, "query_zcode_api") as query:
             self.assertIsNone(zcode.fetch_cached_status(self.state_dir))
         query.assert_not_called()
+
+    @mock.patch.object(zcode, "query_zcode_api")
+    def test_backward_clock_jump_does_not_freeze_cache(self, query):
+        self._write_secrets("tok-clock")
+        token_fp = hashlib.sha256(b"tok-clock").hexdigest()[:16]
+        future_ts = datetime.now(timezone.utc).timestamp() + 3600.0
+        paths.write_json(
+            self.cache_path,
+            {
+                "ts": future_ts,
+                "seq": 2,
+                "token_fingerprint": token_fp,
+                "result": {"auth_ok": True, "coupon_state": "absent"},
+            },
+        )
+        query.return_value = {"auth_ok": True, "coupon_state": "visible"}
+        result = zcode.fetch_cached_status(self.state_dir)
+        query.assert_called_once()
+        self.assertEqual(result["coupon_state"], "visible")
 
     @mock.patch.object(zcode, "query_zcode_api")
     def test_successful_response_is_cached_and_reused(self, query):
