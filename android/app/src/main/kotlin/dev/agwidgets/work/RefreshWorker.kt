@@ -78,7 +78,11 @@ class RefreshWorker(
  *
  * @return `true` when at least one source failed in a retryable way.
  */
-internal suspend fun performRefresh(context: Context, timeoutMs: Int = 15_000): Boolean {
+internal suspend fun performRefresh(
+    context: Context,
+    timeoutMs: Int = 15_000,
+    updateWidget: Boolean = true,
+): Boolean {
     val appContext = context.applicationContext
     val (ntfyNetworkFailure, zcodeNetworkFailure) = coroutineScope {
         val ntfy = async { refreshNtfy(appContext, timeoutMs) }
@@ -86,7 +90,9 @@ internal suspend fun performRefresh(context: Context, timeoutMs: Int = 15_000): 
         ntfy.await() to zcode.await()
     }
 
-    LimitsWidget().updateAll(appContext)
+    if (updateWidget) {
+        LimitsWidget().updateAll(appContext)
+    }
     return ntfyNetworkFailure || zcodeNetworkFailure
 }
 

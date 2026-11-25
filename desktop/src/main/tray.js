@@ -65,11 +65,14 @@ function quit() {
 function showWidget() {
   const api = windowApi();
   if (api && typeof api.showWindow === 'function') api.showWindow();
+  // Rebuild the tray menu immediately so Windows shows the updated action on the next right-click.
+  refreshMenu();
 }
 
 function hideWidget() {
   const api = windowApi();
   if (api && typeof api.hideWindow === 'function') api.hideWindow();
+  refreshMenu();
 }
 
 function refreshMenu() {

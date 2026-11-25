@@ -69,7 +69,8 @@ function preferWindowlessPython(
     if (WINDOWS_PYTHON_EXE.test(candidate)) {
       let sibling = null;
       try {
-        sibling = path.join(path.dirname(candidate), 'pythonw.exe');
+        // Use path.win32 so Windows paths resolve identically when tested on Linux CI.
+        sibling = path.win32.join(path.win32.dirname(candidate), 'pythonw.exe');
         if (sibling === candidate || !existsSync(sibling)) sibling = null;
       } catch {
         sibling = null;

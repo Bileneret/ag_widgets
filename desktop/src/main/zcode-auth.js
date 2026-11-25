@@ -303,7 +303,7 @@ async function zcodeLogout() {
     return {
       ok: true,
       cleared: true,
-      refreshed: Boolean(refreshed?.ok ?? true),
+      refreshed: Boolean(refreshed && refreshed.ok),
     };
   } catch (error) {
     logError('zcode-token', error);

@@ -397,7 +397,7 @@ test('formatError survives a cyclic cause reference', () => {
 
 test('preferWindowlessPython puts pythonw.exe before python.exe on win32', () => {
   const winPath = 'C:\\Python311\\python.exe';
-  const sibling = path.join(path.dirname(winPath), 'pythonw.exe');
+  const sibling = 'C:\\Python311\\pythonw.exe';
   const existsSync = (value) => value === sibling;
 
   const result = collector.preferWindowlessPython([winPath, 'py'], {
@@ -405,8 +405,7 @@ test('preferWindowlessPython puts pythonw.exe before python.exe on win32', () =>
     existsSync,
   });
   assert.deepEqual(result, [sibling, winPath, 'py']);
-  assert.ok(result[0].endsWith('pythonw.exe'));
-  assert.equal(path.dirname(result[0]), path.dirname(winPath));
+  assert.equal(result[0], 'C:\\Python311\\pythonw.exe');
 });
 
 test('preferWindowlessPython puts pythonw before a bare python', () => {

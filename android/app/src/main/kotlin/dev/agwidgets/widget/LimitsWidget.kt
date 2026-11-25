@@ -76,7 +76,7 @@ class RefreshActionCallback : ActionCallback {
             // ignores the short per-request timeouts.
             withTimeoutOrNull(8_500L) {
                 withContext(Dispatchers.IO) {
-                    performRefresh(appContext, timeoutMs = 4_000)
+                    performRefresh(appContext, timeoutMs = 4_000, updateWidget = false)
                 }
             }
         } finally {
@@ -293,7 +293,7 @@ private fun WidgetContent(status: AgStatus?, themeMode: String, dark: Boolean) {
                         Spacer(modifier = GlanceModifier.height(10.dp))
                     WidgetLayoutMode.EXPANDED -> {
                         val contextSummary = status.contextSummary
-                        if (contextSummary != null) {
+                        if (contextSummary?.tokens != null) {
                             ContextSection(
                                 ctx = contextSummary,
                                 fg = fg,
