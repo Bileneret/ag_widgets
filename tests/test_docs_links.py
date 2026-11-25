@@ -52,11 +52,12 @@ _FENCE_RE = re.compile(r"^```.*?^```[^\n]*$", re.DOTALL | re.MULTILINE)
 _LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]*)\)")
 _SKIP_PREFIXES = ("http://", "https://", "mailto:", "ftp://", "#", "<")
 
-# Split so that this test file would not match itself if it ever got listed.
-_USER_TAG = "Le" "novo"
+# Guard against real local home paths, topics, and JWTs; allow neutral placeholders like `<name>` or `<user>`.
 _PERSONAL_PATTERNS = (
-    (re.compile(re.escape(_USER_TAG), re.IGNORECASE), "personal user name"),
-    (re.compile(r"C:\\Users\\" + re.escape(_USER_TAG)), "personal home path"),
+    (
+        re.compile(r"C:\\Users\\(?!(?:<[^>]+>|you|user|username|name)\b)[A-Za-z0-9._-]+", re.IGNORECASE),
+        "personal Windows home path",
+    ),
     (re.compile(r"\bagw-[0-9a-f]{24}\b"), "real-looking ntfy topic"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{20,}"), "JWT"),
 )

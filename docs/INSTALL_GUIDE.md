@@ -37,7 +37,7 @@ The first line of `where.exe python` must **not** be under `WindowsApps`. If it 
 2. Settings → Apps → Advanced app settings → App execution aliases → turn **off** `python.exe` and `python3.exe`.
 3. Reopen the terminal and re-check; `install.ps1` refuses a `WindowsApps` interpreter outright.
 
-**Antigravity: `agy.exe` does not have to be on PATH.** The code searches `AGY_PATH` first, then PATH, then `~/.gemini/bin/agy.exe`, then `%LOCALAPPDATA%\agy\bin\agy.exe`. Antigravity 2.0 installs into the first of those directories and does not add it to PATH, which is expected. To pin a specific binary:
+**Antigravity: `agy.exe` does not have to be on PATH.** The code searches `AGY_PATH` first, then PATH, then `~/.gemini/bin/agy.exe`, then `%LOCALAPPDATA%\agy\bin\agy.exe`. Antigravity 2.0 installs into `~/.gemini/bin` and does not add it to PATH, which is expected. To pin a specific binary:
 
 ```powershell
 setx AGY_PATH "C:\Path\To\agy.exe"

@@ -125,7 +125,7 @@ Useful flags:
 
 ### Install with an AI Agent (1 prompt)
 
-Paste this into your AI agent (Claude, ChatGPT, Cursor, ZCode, ...):
+Paste this into your AI agent (Antigravity, ZCode, Cursor, Claude Code, ...):
 
 ```text
 Read docs/AGENT_INSTALL.md in this repository and install AG Widgets on my Windows machine.

@@ -125,7 +125,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 ### Установить через ИИ-агента (1 промт)
 
-Вставьте это в своего ИИ-агента (Claude, ChatGPT, Cursor, ZCode, ...):
+Вставьте это в своего ИИ-агента (Antigravity, ZCode, Cursor, Claude Code, ...):
 
 ```text
 Прочитай docs/AGENT_INSTALL.md в этом репозитории и установи AG Widgets на мою машину с Windows.
