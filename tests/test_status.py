@@ -549,14 +549,60 @@ class MainTests(unittest.TestCase):
 
         run_once.assert_called_once_with(force_publish=True, dry_run=False, show_topic=False)
 
-    def test_doctor_prints_not_implemented(self):
+    def test_doctor_prints_report_and_passes_offline_flag(self):
+        checks = [{"name": "python_version", "status": "ok", "detail": "3.12"}]
         stdout = io.StringIO()
-        with mock.patch.object(status, "run_once") as run_once:
-            with mock.patch("sys.stdout", stdout):
-                status.main(["--doctor"])
+        with mock.patch("agwidgets.doctor.run_doctor", return_value=checks) as run_doctor:
+            with mock.patch("agwidgets.doctor.format_report", return_value="REPORT") as format_report:
+                with mock.patch.object(status, "run_once") as run_once:
+                    with mock.patch("sys.stdout", stdout):
+                        with self.assertRaises(SystemExit) as raised:
+                            status.main(["--doctor"])
 
-        self.assertEqual(json.loads(stdout.getvalue()), {"doctor": "not_implemented"})
+        self.assertEqual(raised.exception.code, 0)
+        self.assertEqual(stdout.getvalue().strip(), "REPORT")
+        run_doctor.assert_called_once_with(network=False)
+        format_report.assert_called_once_with(checks)
         run_once.assert_not_called()
+
+    def test_doctor_failure_exits_with_code_one(self):
+        checks = [
+            {"name": "python_version", "status": "ok", "detail": "3.12"},
+            {"name": "agy_cli", "status": "fail", "detail": "not found"},
+        ]
+        with mock.patch("agwidgets.doctor.run_doctor", return_value=checks):
+            with mock.patch("agwidgets.doctor.format_report", return_value="REPORT"):
+                with mock.patch("sys.stdout", io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        status.main(["--doctor"])
+
+        self.assertEqual(raised.exception.code, 1)
+
+    def test_doctor_json_forwards_online_and_prints_payload(self):
+        checks = [{"name": "python_version", "status": "ok", "detail": "3.12"}]
+        payload = {"ok": True, "checks": checks}
+        stdout = io.StringIO()
+        with mock.patch("agwidgets.doctor.run_doctor", return_value=checks) as run_doctor:
+            with mock.patch("agwidgets.doctor.build_report", return_value=payload) as build_report:
+                with mock.patch.object(status, "run_once") as run_once:
+                    with mock.patch("sys.stdout", stdout):
+                        with self.assertRaises(SystemExit) as raised:
+                            status.main(["--doctor-json", "--online"])
+
+        self.assertEqual(raised.exception.code, 0)
+        self.assertEqual(json.loads(stdout.getvalue()), payload)
+        run_doctor.assert_called_once_with(network=True)
+        build_report.assert_called_once_with(checks)
+        run_once.assert_not_called()
+
+    def test_online_requires_doctor(self):
+        stderr = io.StringIO()
+        with mock.patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit) as raised:
+                status.main(["--online"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--online requires --doctor", stderr.getvalue())
 
     def test_status_not_written_exits_with_code_one(self):
         payload = {"status_written": False, "error": "config is unreadable"}
