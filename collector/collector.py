@@ -1,7 +1,7 @@
 """Script entry point for the AG Widgets collector.
 
 Usage:
-    python collector/collector.py [--force] [--dry-run]
+    python collector/collector.py [--force] [--dry-run] [--show-topic]
 """
 
 from __future__ import annotations

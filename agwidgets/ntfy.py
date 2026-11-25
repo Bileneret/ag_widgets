@@ -2,39 +2,100 @@
 
 from __future__ import annotations
 
+import copy
+import http.client
 import json
+import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
+
+from . import paths
 
 NTFY_URL = "https://ntfy.sh"
 # ntfy accepts up to 4096 bytes per message. Keep headroom for the JSON envelope.
 MAX_BODY_BYTES = 3800
+
+_CONTEXT_KEYS = ("conversation_id", "active", "model", "tokens", "window", "pct", "level")
+_PRIORITY_BUCKET_KINDS = ("5h", "weekly")
 
 
 def _encode(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
-def _shrink(payload: dict[str, Any]) -> None:
-    """Drop optional human-readable text if the payload is too large."""
-    zcode = payload.get("zcode")
+def _fits(payload: dict[str, Any]) -> bool:
+    return len(_encode(payload)) <= MAX_BODY_BYTES
+
+
+def _shrink(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a deep copy of ``payload`` reduced to fit ``MAX_BODY_BYTES``.
+
+    The caller's dictionary is never modified: only the copy is trimmed, one
+    optional field group at a time.
+    """
+    shrunk = copy.deepcopy(payload)
+    if _fits(shrunk):
+        return shrunk
+
+    zcode = shrunk.get("zcode")
+    if isinstance(zcode, dict) and zcode.get("matched"):
+        zcode["matched"] = str(zcode["matched"])[:64]
+    if _fits(shrunk):
+        return shrunk
+
+    antigravity = shrunk.get("antigravity")
+    if isinstance(antigravity, dict):
+        buckets = antigravity.get("buckets")
+        if isinstance(buckets, list) and len(buckets) > 4:
+            priority = [
+                bucket
+                for bucket in buckets
+                if isinstance(bucket, dict) and bucket.get("kind") in _PRIORITY_BUCKET_KINDS
+            ]
+            rest = [
+                bucket
+                for bucket in buckets
+                if not (isinstance(bucket, dict) and bucket.get("kind") in _PRIORITY_BUCKET_KINDS)
+            ]
+            antigravity["buckets"] = (priority + rest)[:4]
+    if _fits(shrunk):
+        return shrunk
+
+    if isinstance(antigravity, dict):
+        antigravity.pop("error", None)
+        antigravity.pop("saved_at", None)
+    context_summary = shrunk.get("context_summary")
+    if isinstance(context_summary, dict):
+        context_summary.pop("window_source", None)
     if isinstance(zcode, dict):
-        if zcode.get("matched"):
-            zcode["matched"] = str(zcode["matched"])[:64]
+        zcode.pop("plan_name", None)
+    if _fits(shrunk):
+        return shrunk
+
+    if isinstance(context_summary, dict):
+        shrunk["context_summary"] = {
+            key: context_summary[key] for key in _CONTEXT_KEYS if key in context_summary
+        }
+    return shrunk
 
 
 def publish(topic: str, payload: dict[str, Any], timeout: int = 15) -> tuple[bool, str]:
     """POST ``payload`` to ``https://ntfy.sh/<topic>``. Returns ``(ok, detail)``."""
+    candidate = topic.strip() if isinstance(topic, str) else ""
+    if re.fullmatch(paths.NTFY_TOPIC_RE, candidate) is None:
+        return False, "invalid topic"
+
     body = _encode(payload)
     if len(body) > MAX_BODY_BYTES:
-        _shrink(payload)
-        body = _encode(payload)
+        body = _encode(_shrink(payload))
         if len(body) > MAX_BODY_BYTES:
             return False, f"payload too large ({len(body)} bytes)"
 
+    encoded_topic = urllib.parse.quote(candidate, safe="")
     request = urllib.request.Request(
-        f"{NTFY_URL}/{topic}",
+        f"{NTFY_URL}/{encoded_topic}",
         data=body,
         method="POST",
         headers={
@@ -48,5 +109,5 @@ def publish(topic: str, payload: dict[str, Any], timeout: int = 15) -> tuple[boo
             return 200 <= response.status < 300, f"HTTP {response.status}"
     except urllib.error.HTTPError as error:
         return False, f"HTTP {error.code}: {error.reason}"
-    except OSError as error:
+    except (OSError, http.client.HTTPException) as error:
         return False, str(error)
