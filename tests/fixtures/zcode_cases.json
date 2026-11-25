@@ -1,0 +1,265 @@
+{
+  "balance_cases": [
+    {
+      "name": "active_and_expired_mixed",
+      "now_sec": 1795608000,
+      "payload": {
+        "code": 0,
+        "data": {
+          "server_time": 1795608000,
+          "plans": [
+            {
+              "plan_id": "plan-old",
+              "user_plan_id": "user-old",
+              "status": "expired",
+              "name": "Old Plan",
+              "ends_at": 1795521600
+            },
+            {
+              "plan_id": "plan-live",
+              "user_plan_id": "user-live",
+              "status": "active",
+              "name": "ZCode Voucher",
+              "ends_at": 1796126400
+            }
+          ],
+          "balances": [
+            {
+              "plan_id": "plan-old",
+              "user_plan_id": "user-old",
+              "total_units": 900000000,
+              "available_units": 800000000,
+              "period_end": 1795521600
+            },
+            {
+              "plan_id": "plan-live",
+              "user_plan_id": "user-live",
+              "total_units": 500000000,
+              "available_units": 300000000,
+              "period_end": 1796126400
+            }
+          ]
+        }
+      },
+      "expected": {
+        "remaining_units": 300000000,
+        "total_units": 500000000,
+        "plan_name": "ZCode Voucher",
+        "ends_at": "2026-12-01T12:00:00Z"
+      }
+    },
+    {
+      "name": "all_plans_expired",
+      "now_sec": 1795608000,
+      "payload": {
+        "code": 0,
+        "data": {
+          "server_time": 1795608000,
+          "plans": [
+            {
+              "plan_id": "plan-old",
+              "user_plan_id": "user-old",
+              "status": "expired",
+              "name": "Old Plan",
+              "ends_at": 1795521600
+            }
+          ],
+          "balances": [
+            {
+              "plan_id": "plan-old",
+              "user_plan_id": "user-old",
+              "total_units": 900000000,
+              "available_units": 800000000,
+              "period_end": 1795521600
+            }
+          ]
+        }
+      },
+      "expected": {
+        "remaining_units": null,
+        "total_units": null,
+        "plan_name": "",
+        "ends_at": null
+      }
+    },
+    {
+      "name": "server_time_milliseconds",
+      "now_sec": 1795608000,
+      "payload": {
+        "code": 0,
+        "data": {
+          "server_time": 1795608000000,
+          "plans": [
+            {
+              "plan_id": "plan-live",
+              "user_plan_id": "user-live",
+              "status": "active",
+              "name": "ZCode Voucher",
+              "ends_at": 1796126400000
+            }
+          ],
+          "balances": [
+            {
+              "plan_id": "plan-live",
+              "user_plan_id": "user-live",
+              "total_units": 1000000000,
+              "available_units": 250000000,
+              "period_end": 1796126400000
+            }
+          ]
+        }
+      },
+      "expected": {
+        "remaining_units": 250000000,
+        "total_units": 1000000000,
+        "plan_name": "ZCode Voucher",
+        "ends_at": "2026-12-01T12:00:00Z"
+      }
+    },
+    {
+      "name": "used_units_fallback_no_plans",
+      "now_sec": 1795608000,
+      "payload": {
+        "code": 0,
+        "data": {
+          "server_time": 1795608000,
+          "balances": [
+            {
+              "total_units": 400000000,
+              "used_units": 150000000
+            }
+          ]
+        }
+      },
+      "expected": {
+        "remaining_units": 250000000,
+        "total_units": 400000000,
+        "plan_name": "",
+        "ends_at": null
+      }
+    }
+  ],
+  "touch_cases": [
+    {
+      "name": "banner_voucher_visible",
+      "payload": {
+        "code": 0,
+        "data": {
+          "deliveries": [
+            {
+              "resource_position": "banner",
+              "banner": {
+                "title": {
+                  "content": "Подарок ZCode"
+                },
+                "buttons": [
+                  {
+                    "text": {
+                      "content": "Забрать ваучер"
+                    },
+                    "action": {
+                      "type": "claim_zcode_plan",
+                      "args": {
+                        "plan_id": "voucher-banner"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "coupon_state": "visible",
+        "plan_id": "voucher-banner",
+        "matched": "Забрать ваучер"
+      }
+    },
+    {
+      "name": "popup_voucher_visible",
+      "payload": {
+        "code": 0,
+        "data": {
+          "deliveries": [
+            {
+              "resource_position": "popup",
+              "popup": {
+                "title": {
+                  "content": "Новости ZCode"
+                },
+                "buttons": [
+                  {
+                    "text": {
+                      "content": "Открыть"
+                    },
+                    "action": {
+                      "type": "open_url",
+                      "args": {
+                        "url": "https://zcode.z.ai"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "resource_position": "popup",
+              "popup": {
+                "title": {
+                  "content": "Ваучер ZCode"
+                },
+                "buttons": [
+                  {
+                    "text": {
+                      "content": ""
+                    },
+                    "action": {
+                      "type": "claim_zcode_plan",
+                      "args": {
+                        "plan_id": "voucher-popup"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "coupon_state": "visible",
+        "plan_id": "voucher-popup",
+        "matched": "Ваучер ZCode"
+      }
+    },
+    {
+      "name": "empty_deliveries_absent",
+      "payload": {
+        "code": 0,
+        "data": {
+          "deliveries": []
+        }
+      },
+      "expected": {
+        "coupon_state": "absent",
+        "plan_id": "",
+        "matched": ""
+      }
+    },
+    {
+      "name": "missing_deliveries_api_changed",
+      "payload": {
+        "code": 0,
+        "data": {
+          "promo": []
+        }
+      },
+      "expected": {
+        "coupon_state": "unknown",
+        "plan_id": "",
+        "matched": ""
+      }
+    }
+  ]
+}
