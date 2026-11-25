@@ -2,7 +2,7 @@
 <html lang="ru" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AG Widgets</title>
   <link rel="stylesheet" href="styles.css" />
@@ -41,96 +41,100 @@
       </div>
     </header>
 
-    <!-- 01 / Context -->
-    <section class="card context-card" id="context-card" aria-live="polite">
-      <div class="card-topline">
-        <span class="serial">01 / CONTEXT</span>
-        <span class="material" id="ctx-material">NO SESSION</span>
-      </div>
+    <div class="cards-stack">
+      <!-- 01 / Context -->
+      <section class="card context-card" id="context-card" aria-live="polite">
+        <div class="card-topline">
+          <span class="serial">01 / CONTEXT</span>
+          <span class="material" id="ctx-material">НЕТ СЕССИИ</span>
+        </div>
 
-      <div class="context-main">
-        <div class="orbital-gauge">
-          <svg class="gauge-svg" viewBox="0 0 140 140" role="img" aria-label="Заполнение контекста">
-            <defs>
-              <radialGradient id="gaugeHalo" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stop-color="#ffe9b8" stop-opacity="0.16" />
-                <stop offset="100%" stop-color="#ffe9b8" stop-opacity="0" />
-              </radialGradient>
-            </defs>
-            <circle cx="70" cy="70" r="60" fill="url(#gaugeHalo)" />
-            <ellipse class="orbit orbit-a" cx="70" cy="70" rx="62" ry="23" transform="rotate(-24 70 70)" />
-            <ellipse class="orbit orbit-b" cx="70" cy="70" rx="52" ry="52" />
-            <line class="reticle" x1="70" y1="3" x2="70" y2="137" />
-            <line class="reticle" x1="3" y1="70" x2="137" y2="70" />
-            <circle class="ring-track" cx="70" cy="70" r="48" />
-            <circle id="ring-progress" class="ring-fill" cx="70" cy="70" r="48" />
-            <circle id="ring-satellite" class="ring-satellite" cx="70" cy="22" r="3.2" />
-          </svg>
-          <div class="gauge-center">
-            <span id="ctx-tokens" class="tokens-big">—</span>
-            <span id="ctx-token-sub" class="tokens-sub">TOKENS</span>
+        <div class="context-main">
+          <div class="orbital-gauge">
+            <svg class="gauge-svg" viewBox="0 0 140 140" role="img" aria-label="Заполнение контекста">
+              <defs>
+                <radialGradient id="gaugeHalo" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" style="stop-color: var(--gauge-halo)" stop-opacity="0.16" />
+                  <stop offset="100%" style="stop-color: var(--gauge-halo)" stop-opacity="0" />
+                </radialGradient>
+              </defs>
+              <circle cx="70" cy="70" r="60" fill="url(#gaugeHalo)" />
+              <ellipse class="orbit orbit-a" cx="70" cy="70" rx="62" ry="23" transform="rotate(-24 70 70)" />
+              <ellipse class="orbit orbit-b" cx="70" cy="70" rx="52" ry="52" />
+              <line class="reticle" x1="70" y1="3" x2="70" y2="137" />
+              <line class="reticle" x1="3" y1="70" x2="137" y2="70" />
+              <circle class="ring-track" cx="70" cy="70" r="48" />
+              <circle id="ring-progress" class="ring-fill" cx="70" cy="70" r="48" />
+              <circle id="ring-satellite" class="ring-satellite" cx="70" cy="22" r="3.2" />
+            </svg>
+            <div class="gauge-center">
+              <span id="ctx-tokens" class="tokens-big">—</span>
+              <span id="ctx-token-sub" class="tokens-sub">ТОКЕНЫ</span>
+            </div>
+          </div>
+
+          <div class="context-meta">
+            <div class="meta-top">
+              <span id="ctx-model" class="model-name">Ожидание диалога</span>
+              <span id="ctx-level-pill" class="status-pill level-idle">—</span>
+            </div>
+            <div id="ctx-workspace" class="meta-ws">—</div>
+            <div id="ctx-snippet" class="meta-snippet">Отправь запрос в Antigravity</div>
+            <div id="ctx-alert" class="ctx-alert hidden">Пора /compact</div>
           </div>
         </div>
 
-        <div class="context-meta">
-          <div class="meta-top">
-            <span id="ctx-model" class="model-name">Ожидание диалога</span>
-            <span id="ctx-level-pill" class="status-pill level-idle">—</span>
+        <div class="zone">
+          <div class="zone-track" id="zone-track">
+            <div class="zone-marker" id="zone-marker"></div>
           </div>
-          <div id="ctx-workspace" class="meta-ws">—</div>
-          <div id="ctx-snippet" class="meta-snippet">Отправь запрос в Antigravity</div>
-          <div id="ctx-alert" class="ctx-alert hidden">Пора /compact</div>
+          <div class="zone-legend">
+            <span id="zone-warn-label">надёжно до —</span>
+            <span id="zone-risk-label">риск после —</span>
+          </div>
         </div>
-      </div>
 
-      <div class="zone">
-        <div class="zone-track" id="zone-track">
-          <div class="zone-marker" id="zone-marker"></div>
+        <div id="ctx-recent" class="recent-list"></div>
+      </section>
+
+      <!-- 02 / Quotas -->
+      <section class="card quota-card" aria-live="polite">
+        <div class="card-topline">
+          <span class="serial">02 / LIMITS</span>
+          <span id="quota-extra" class="quota-extra hidden"></span>
+          <span id="plan-tier" class="tier-badge">PRO</span>
         </div>
-        <div class="zone-legend">
-          <span id="zone-warn-label">RELIABLE TO —</span>
-          <span id="zone-risk-label">RISK AFTER —</span>
+        <div id="quota-list" class="quota-list">
+          <div class="empty-msg">Квоты появятся после первого /usage</div>
         </div>
-      </div>
+        <div id="quota-error" class="quota-error hidden"></div>
+      </section>
 
-      <div id="ctx-recent" class="recent-list"></div>
-    </section>
-
-    <!-- 02 / Quotas -->
-    <section class="card quota-card" aria-live="polite">
-      <div class="card-topline">
-        <span class="serial">02 / LIMITS</span>
-        <span id="plan-tier" class="tier-badge">PRO</span>
-      </div>
-      <div id="quota-list" class="quota-list">
-        <div class="empty-msg">Квоты появятся после первого /usage</div>
-      </div>
-    </section>
-
-    <!-- 03 / ZCode -->
-    <section class="card zcode-card" id="zcode-card" aria-live="polite">
-      <div class="card-topline">
-        <span class="serial">03 / ACCESS</span>
-        <span class="material" id="zcode-material">OFF</span>
-      </div>
-      <div class="zcode-row">
-        <div class="zcode-info">
-          <div id="zcode-title" class="zcode-title">ZCode</div>
-          <div id="zcode-sub" class="zcode-sub">Ожидание проверки</div>
-          <div id="zcode-bar" class="zcode-bar hidden"><div id="zcode-bar-fill" class="zcode-bar-fill"></div></div>
+      <!-- 03 / ZCode -->
+      <section class="card zcode-card" id="zcode-card" aria-live="polite">
+        <div class="card-topline">
+          <span class="serial">03 / ACCESS</span>
+          <span class="material" id="zcode-material">OFF</span>
         </div>
-        <div id="zcode-chip" class="zcode-chip chip-idle">нет данных</div>
-      </div>
-      <div class="zcode-actions hidden" id="zcode-actions">
-        <button id="zcode-login" class="zcode-action" type="button">ВОЙТИ В Z.AI</button>
-      </div>
-    </section>
+        <div class="zcode-row">
+          <div class="zcode-info">
+            <div id="zcode-title" class="zcode-title">ZCode</div>
+            <div id="zcode-sub" class="zcode-sub">Ожидание проверки</div>
+            <div id="zcode-bar" class="zcode-bar hidden"><div id="zcode-bar-fill" class="zcode-bar-fill"></div></div>
+          </div>
+          <div id="zcode-chip" class="zcode-chip chip-idle">нет данных</div>
+        </div>
+        <div class="zcode-actions hidden" id="zcode-actions">
+          <button id="zcode-login" class="zcode-action" type="button">ВОЙТИ В Z.AI</button>
+        </div>
+      </section>
+    </div>
 
     <footer class="widget-footer" aria-hidden="true">
       <span class="footer-brand">AGW<span>/01</span></span>
-      <span class="legend"><i class="legend-dot ok"></i>&lt;40%</span>
-      <span class="legend"><i class="legend-dot warn"></i>40–65%</span>
-      <span class="legend"><i class="legend-dot risk"></i>&gt;65%</span>
+      <span class="legend"><i class="legend-dot ok"></i><span id="legend-ok">&lt;40%</span></span>
+      <span class="legend"><i class="legend-dot warn"></i><span id="legend-warn">40–65%</span></span>
+      <span class="legend"><i class="legend-dot risk"></i><span id="legend-risk">&gt;65%</span></span>
       <span class="footer-note">CONTEXT HEALTH</span>
     </footer>
   </div>
