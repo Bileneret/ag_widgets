@@ -24,6 +24,7 @@ internal fun DiagnosticsCard(
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
+    val isClassic = AgTheme.colors.isClassic
     GlassCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -33,7 +34,7 @@ internal fun DiagnosticsCard(
                 Text(
                     text = "05 / SYSTEM",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 8.sp,
+                    fontSize = if (isClassic) 8.sp else 11.sp,
                     letterSpacing = 1.3.sp,
                     color = AgTheme.colors.muted,
                 )
@@ -49,7 +50,7 @@ internal fun DiagnosticsCard(
                 Text(
                     text = if (expanded) "СКРЫТЬ" else "JSON",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 9.sp,
+                    fontSize = if (isClassic) 9.sp else 12.sp,
                     letterSpacing = 0.8.sp,
                     color = AgTheme.colors.glow,
                 )

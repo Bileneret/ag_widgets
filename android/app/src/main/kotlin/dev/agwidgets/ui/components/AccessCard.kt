@@ -53,6 +53,7 @@ internal fun AccessCard(
             text = "Прямой опрос zcode.z.ai каждые 15 минут: ваучеры на 300–500M токенов и баланс " +
                 "приходят даже при выключенном компьютере.",
             style = MaterialTheme.typography.bodySmall,
+            fontSize = if (AgTheme.colors.isClassic) 11.5.sp else 12.sp,
             color = AgTheme.colors.muted,
         )
         if (zcode?.remainingUnits != null) {
@@ -115,7 +116,12 @@ internal fun AccessCard(
                 }
             }
         }
-        Text(message, style = MaterialTheme.typography.bodySmall, color = AgTheme.colors.secondary)
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            fontSize = if (AgTheme.colors.isClassic) 11.5.sp else 12.sp,
+            color = AgTheme.colors.secondary,
+        )
     }
 }
 
@@ -123,12 +129,13 @@ internal fun AccessCard(
 private fun BalanceBar(zcode: ZCodeStatus) {
     val remaining = zcode.remainingUnits ?: return
     val total = zcode.totalUnits
+    val labelSize = if (AgTheme.colors.isClassic) 9.sp else 11.5.sp
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 text = "ОСТАТОК ${formatUnits(remaining)}${total?.let { " / ${formatUnits(it)}" } ?: ""}",
                 fontFamily = FontFamily.Monospace,
-                fontSize = 9.sp,
+                fontSize = labelSize,
                 letterSpacing = 0.5.sp,
                 color = AgTheme.colors.text,
             )
@@ -136,7 +143,7 @@ private fun BalanceBar(zcode: ZCodeStatus) {
                 Text(
                     text = "ДО ${formatDateShort(it)}",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 9.sp,
+                    fontSize = labelSize,
                     color = AgTheme.colors.muted,
                 )
             }

@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.agwidgets.ui.theme.AgTheme
 
 @Composable
@@ -24,6 +25,7 @@ internal fun SurfaceCard(onPinWidget: () -> Unit) {
             text = "Шкалы 5h/неделя, обратный отсчёт, статус ZCode и контекст ПК. " +
                 "Уведомления о сбросе приходят без компьютера.",
             style = MaterialTheme.typography.bodySmall,
+            fontSize = if (AgTheme.colors.isClassic) 11.5.sp else 12.sp,
             color = AgTheme.colors.muted,
         )
         OutlinedButton(

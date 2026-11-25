@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.agwidgets.ui.theme.AgTheme
 
 @Composable
@@ -35,6 +36,7 @@ internal fun ChannelCard(
             text = "Квоты 5h/неделя, контекст ПК и статус ZCode приходят с компьютера " +
                 "через приватный ntfy-канал.",
             style = MaterialTheme.typography.bodySmall,
+            fontSize = if (AgTheme.colors.isClassic) 11.5.sp else 12.sp,
             color = AgTheme.colors.muted,
         )
         OutlinedTextField(
@@ -68,7 +70,12 @@ internal fun ChannelCard(
             }
         }
         if (statusMessage.isNotBlank()) {
-            Text(statusMessage, style = MaterialTheme.typography.bodySmall, color = AgTheme.colors.glow)
+            Text(
+                text = statusMessage,
+                style = MaterialTheme.typography.bodySmall,
+                fontSize = if (AgTheme.colors.isClassic) 11.5.sp else 12.sp,
+                color = AgTheme.colors.glow,
+            )
         }
     }
 }
