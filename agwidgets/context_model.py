@@ -31,12 +31,13 @@ Both percentages are configurable through ``context_thresholds``.
 
 from __future__ import annotations
 
-import json
-import os
+import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from . import paths
 
 DEFAULT_MODEL_WINDOWS: dict[str, int] = {
     "gemini-4-neon": 524_288,
@@ -59,8 +60,6 @@ DEFAULT_CONTEXT_THRESHOLDS: dict[str, float] = {
 
 LEARNED_WINDOWS_FILE = "model_windows_learned.json"
 
-_EFFORT_TOKENS = ("low", "medium", "high", "xhigh", "max", "minimal")
-
 
 def normalize_model_key(value: Any) -> str:
     """Normalize model ids and display names into a kebab-case key.
@@ -80,9 +79,31 @@ def _positive_int(value: Any) -> int | None:
         return None
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return number if number > 0 else None
+
+
+def _as_int(value: Any) -> int | None:
+    """Coerce a JSON number to ``int``, ignoring bools, NaN, and infinities."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return int(value)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _percent(tokens: int, window: int) -> float:
+    """Return usage as a rounded percentage; absurd values saturate at 100."""
+    try:
+        return round(tokens / window * 100.0, 2)
+    except (OverflowError, ZeroDivisionError):
+        return 100.0
 
 
 def _match(model_key: str, table: dict[str, Any]) -> tuple[int, str] | None:
@@ -94,7 +115,7 @@ def _match(model_key: str, table: dict[str, Any]) -> tuple[int, str] | None:
         size = _positive_int(size)
         if not key or not size:
             continue
-        if model_key == key or model_key.startswith(key):
+        if model_key == key or model_key.startswith(key + "-"):
             if best is None or len(key) > len(best[1]):
                 best = (size, key)
     return best
@@ -105,10 +126,7 @@ def learned_windows_path(state_dir: Path) -> Path:
 
 
 def load_learned_windows(state_dir: Path) -> dict[str, Any]:
-    try:
-        data = json.loads(learned_windows_path(state_dir).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    data = paths.read_json(learned_windows_path(state_dir))
     windows = data.get("windows") if isinstance(data, dict) else None
     return windows if isinstance(windows, dict) else {}
 
@@ -120,17 +138,18 @@ def save_learned_window(state_dir: Path, model: Any, size: Any) -> bool:
     if not key or not window:
         return False
 
+    now_iso = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    record = {"size": window, "source": "cli", "updated_at": now_iso}
     path = learned_windows_path(state_dir)
-    windows = load_learned_windows(state_dir)
-    windows[key] = {
-        "size": window,
-        "source": "cli",
-        "updated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps({"windows": windows}, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        paths.update_json(
+            path,
+            lambda data: {"windows": {**_as_dict(data.get("windows")), key: record}},
+        )
+    except paths.ConfigReadError:
+        # The learned cache is regenerable: rebuild it instead of failing the caller.
+        with paths.file_lock(paths.lock_path_for(path)):
+            paths.write_json(path, {"windows": {key: record}})
     return True
 
 
@@ -184,6 +203,8 @@ def compute_context(
 ) -> dict[str, Any]:
     """Compute percentage, health level, and absolute warning boundaries."""
     thresholds = thresholds or DEFAULT_CONTEXT_THRESHOLDS
+    tokens = max(0, _as_int(tokens) or 0)
+    window = _as_int(window)
     if not window or window <= 0:
         return {
             "tokens": tokens,
@@ -196,8 +217,13 @@ def compute_context(
             "risk_tokens": None,
         }
 
-    pct = round(tokens / window * 100.0, 2)
-    level = "red" if pct >= thresholds["red_pct"] else "yellow" if pct >= thresholds["yellow_pct"] else "green"
+    pct = _percent(tokens, window)
+    if pct >= thresholds["red_pct"]:
+        level = "risk"
+    elif pct >= thresholds["yellow_pct"]:
+        level = "warn"
+    else:
+        level = "ok"
     return {
         "tokens": tokens,
         "window": window,
@@ -211,24 +237,38 @@ def compute_context(
 
 
 def format_window(value: Any) -> str:
-    """Format a nominal window: 524288 -> 512K, 1048576 -> 1M, 131072 -> 128K."""
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+    """Format a nominal window: 524288 -> 512K, 1048576 -> 1M, 2097152 -> 2M."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
         return "—"
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # A JSON literal such as 10**400 has no float value.
+        return "—"
+    if not math.isfinite(number) or number <= 0:
+        return "—"
     if number >= 1_000_000:
-        millions = round(number / 1_000_000 * 10) / 10
-        return f"{millions:.1f}".rstrip("0").rstrip(".") + "M"
+        if number in (1_048_576, 1_000_000):
+            return "1M"
+        millions = f"{number / 1_048_576:.1f}".rstrip("0").rstrip(".")
+        return f"{millions}M"
     if number >= 1024:
         return f"{round(number / 1024)}K"
-    return str(int(number))
+    return str(int(round(number)))
 
 
 def format_tokens(value: Any) -> str:
+    """Format a token count: 999999 -> 1M, 1234567 -> 1.2M, 12345 -> 12K."""
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return "—"
-    number = float(value)
-    if number >= 1_000_000:
-        return f"{number / 1_000_000:.2f}M"
+    try:
+        number = float(value)
+    except OverflowError:  # A JSON literal such as 10**400 has no float value.
+        return "—"
+    if not math.isfinite(number):
+        return "—"
+    if number >= 999_500:
+        millions = f"{number / 1_000_000:.1f}".rstrip("0").rstrip(".")
+        return f"{millions}M"
     if number >= 1_000:
-        return f"{number / 1_000:.0f}K"
-    return str(int(number))
+        return f"{round(number / 1_000)}K"
+    return str(int(round(number)))

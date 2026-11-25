@@ -74,16 +74,65 @@ class ModelWindowTests(unittest.TestCase):
                 (1_048_576, "cli"),
             )
 
+    def test_normalize_model_key_handles_empty(self):
+        self.assertEqual(cm.normalize_model_key(None), "")
+        self.assertEqual(cm.normalize_model_key(""), "")
+        self.assertEqual(cm.normalize_model_key("   "), "")
+        self.assertEqual(cm.normalize_model_key("Gemini -- 4  Neon!!!"), "gemini-4-neon")
+
+    def test_prefix_boundary_requires_dash(self):
+        # "gemini-4-neon2-high" must not match the "gemini-4-neon" prefix.
+        self.assertEqual(cm.resolve_model_window("gemini-4-neon2-high"), (None, "unknown"))
+        self.assertEqual(cm.resolve_model_window("gemini-4-neon-high"), (524_288, "table"))
+
+    def test_prefix_boundary_accepts_dashed_claude_variant(self):
+        self.assertEqual(
+            cm.resolve_model_window("claude-opus-5-5-high"),
+            (1_000_000, "table"),
+        )
+        self.assertEqual(cm.resolve_model_window("claude-opus-5-50"), (None, "unknown"))
+
+    def test_invalid_config_windows_fall_back_to_table(self):
+        config_windows = {
+            "gemini-4-neon": 0,
+            "claude-opus-5-5": "not-a-number",
+            "gpt-oss-120b": {"size": True},
+        }
+        self.assertEqual(
+            cm.resolve_model_window("gemini-4-neon-high", config_windows=config_windows),
+            (524_288, "table"),
+        )
+        self.assertEqual(
+            cm.resolve_model_window("claude-opus-5-5-high", config_windows=config_windows),
+            (1_000_000, "table"),
+        )
+        self.assertEqual(
+            cm.resolve_model_window("gpt-oss-120b-medium", config_windows=config_windows),
+            (131_072, "table"),
+        )
+
+    def test_learned_window_rejects_invalid_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            self.assertFalse(cm.save_learned_window(state, "gemini-4-neon-high", True))
+            self.assertFalse(cm.save_learned_window(state, "", 1_000))
+            self.assertFalse(cm.save_learned_window(state, "gemini-4-neon-high", 0))
+            self.assertEqual(cm.load_learned_windows(state), {})
+
+    def test_load_learned_windows_missing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(cm.load_learned_windows(Path(tmp)), {})
+
 
 class ContextLevelTests(unittest.TestCase):
     def test_neon_boundaries(self):
-        green = cm.compute_context(100_000, 524_288)
-        self.assertEqual(green["level"], "green")
-        self.assertEqual(green["warn_tokens"], 209_715)
-        self.assertEqual(green["risk_tokens"], 340_787)
+        ok = cm.compute_context(100_000, 524_288)
+        self.assertEqual(ok["level"], "ok")
+        self.assertEqual(ok["warn_tokens"], 209_715)
+        self.assertEqual(ok["risk_tokens"], 340_787)
 
-        self.assertEqual(cm.compute_context(210_000, 524_288)["level"], "yellow")
-        self.assertEqual(cm.compute_context(341_000, 524_288)["level"], "red")
+        self.assertEqual(cm.compute_context(210_000, 524_288)["level"], "warn")
+        self.assertEqual(cm.compute_context(341_000, 524_288)["level"], "risk")
 
     def test_window_formatting(self):
         self.assertEqual(cm.format_window(524_288), "512K")
@@ -104,6 +153,72 @@ class ContextLevelTests(unittest.TestCase):
 
     def test_defaults_when_config_missing(self):
         self.assertEqual(cm.normalize_thresholds(None), {"yellow_pct": 40.0, "red_pct": 65.0})
+
+    def test_format_tokens_million_boundary(self):
+        self.assertEqual(cm.format_tokens(999_999), "1M")
+        self.assertEqual(cm.format_tokens(999_500), "1M")
+        self.assertEqual(cm.format_tokens(999_499), "999K")
+        self.assertEqual(cm.format_tokens(1_000_000), "1M")
+
+    def test_format_tokens_millions(self):
+        self.assertEqual(cm.format_tokens(1_234_567), "1.2M")
+
+    def test_format_tokens_zero(self):
+        self.assertEqual(cm.format_tokens(0), "0")
+
+    def test_format_tokens_rejects_none(self):
+        self.assertEqual(cm.format_tokens(None), "—")
+
+    def test_format_tokens_rejects_bool(self):
+        self.assertEqual(cm.format_tokens(True), "—")
+        self.assertEqual(cm.format_tokens(False), "—")
+
+    def test_format_tokens_rejects_nan(self):
+        self.assertEqual(cm.format_tokens(float("nan")), "—")
+
+    def test_format_window_megabytes(self):
+        self.assertEqual(cm.format_window(2_097_152), "2M")
+        self.assertEqual(cm.format_window(1_048_576), "1M")
+        self.assertEqual(cm.format_window(1_000_000), "1M")
+
+    def test_format_window_kilobytes(self):
+        self.assertEqual(cm.format_window(524_288), "512K")
+        self.assertEqual(cm.format_window(131_072), "128K")
+
+    def test_format_window_zero(self):
+        self.assertEqual(cm.format_window(0), "—")
+
+    def test_format_window_rejects_invalid(self):
+        self.assertEqual(cm.format_window(None), "—")
+        self.assertEqual(cm.format_window(True), "—")
+        self.assertEqual(cm.format_window(float("nan")), "—")
+
+    def test_compute_context_clamps_negative_tokens(self):
+        result = cm.compute_context(-5, 524_288)
+        self.assertEqual(result["tokens"], 0)
+        self.assertEqual(result["pct"], 0.0)
+        self.assertEqual(result["level"], "ok")
+
+    def test_compute_context_bool_tokens(self):
+        result = cm.compute_context(True, 524_288)
+        self.assertEqual(result["tokens"], 0)
+        self.assertEqual(result["level"], "ok")
+
+    def test_compute_context_zero_tokens_is_ok(self):
+        self.assertEqual(cm.compute_context(0, 524_288)["level"], "ok")
+
+    def test_compute_context_zero_window_unknown(self):
+        result = cm.compute_context(100, 0)
+        self.assertEqual(result["level"], "unknown")
+        self.assertIsNone(result["window"])
+        self.assertIsNone(result["pct"])
+        self.assertEqual(result["tokens"], 100)
+
+    def test_compute_context_custom_thresholds(self):
+        thresholds = {"yellow_pct": 10.0, "red_pct": 20.0}
+        self.assertEqual(cm.compute_context(99, 1_000, thresholds)["level"], "ok")
+        self.assertEqual(cm.compute_context(100, 1_000, thresholds)["level"], "warn")
+        self.assertEqual(cm.compute_context(200, 1_000, thresholds)["level"], "risk")
 
 
 if __name__ == "__main__":
