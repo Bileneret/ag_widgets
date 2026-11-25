@@ -171,7 +171,7 @@ Read-only install checks, safe to run at any time (`--doctor` exits with `1` whe
 ```powershell
 python collector\collector.py --doctor          # human-readable checks
 python collector\collector.py --doctor-json     # anonymized JSON to paste into an issue
-python collector\collector.py --online          # also probe ntfy.sh and the ZCode API
+python collector\collector.py --doctor --online # also probe ntfy.sh and the ZCode API
 ```
 
 `--doctor-json` never prints the token or the topic. To print the private ntfy topic for pairing the phone, run `python collector\collector.py --show-topic`. For credentials, `python collector\zcode_auth.py --set-token-stdin` reads a JWT from stdin (it stays out of shell history and process lists), and `--clear-token` removes the saved token.

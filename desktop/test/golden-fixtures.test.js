@@ -15,10 +15,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const fmt = require('../src/renderer/format.js');
+const zcodeView = require('../src/renderer/zcode.js');
 const security = require('../src/main/zcode-auth.js');
 
 const FIXTURE_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'format_cases.json');
+const STATUS_FIXTURE_PATH = path.join(__dirname, '..', '..', 'tests', 'fixtures', 'status_cases.json');
 const fixtures = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
+const statusFixtures = JSON.parse(fs.readFileSync(STATUS_FIXTURE_PATH, 'utf8'));
 
 function fixtureCases(name) {
   const list = fixtures[name];
@@ -115,5 +118,20 @@ describe('golden fixtures: isTrustedAuthorizeUrl', () => {
         `isTrustedAuthorizeUrl(${show(testCase.url)}) returned ${show(actual)}, expected ${show(testCase.trusted)}`,
       );
     }
+  });
+});
+
+describe('golden fixtures: status_cases.json', () => {
+  it('treats valid_v2 unknown coupon state honestly without claiming absence', () => {
+    const desc = zcodeView.describeCoupon(statusFixtures.valid_v2.zcode);
+    assert.equal(desc.state, 'unknown');
+    assert.equal(desc.tone, 'warn');
+    assert.notEqual(desc.text, 'Нет активных ваучеров');
+  });
+
+  it('keeps valid_v1 legacy coupon_visible=false as confirmed absent', () => {
+    const desc = zcodeView.describeCoupon(statusFixtures.valid_v1.zcode);
+    assert.equal(desc.state, 'absent');
+    assert.equal(desc.text, 'Нет активных ваучеров');
   });
 });

@@ -20,6 +20,7 @@ from agwidgets import crypto, doctor, paths  # noqa: E402
 SECRET_TOKEN = "super-secret-jwt-value"
 SECRET_TOPIC = "agw-supersecrettopic"
 EXPECTED_CHECKS = [
+    "python_version",
     "agy_cli",
     "annotations_dir",
     "antigravity_hook",
@@ -142,8 +143,9 @@ class EmptyInstallTests(DoctorTestCase):
         checks = self.run_checks()
         by_name = self.by_name(checks)
 
+        self.assertEqual(by_name["python_version"]["status"], "ok")
         self.assertEqual(by_name["agy_cli"]["status"], "fail")
-        for name in EXPECTED_CHECKS[1:]:
+        for name in EXPECTED_CHECKS[2:]:
             self.assertEqual(by_name[name]["status"], "warn", name)
 
         report = doctor.build_report(checks)
@@ -420,7 +422,7 @@ class SecretsStorageTests(DoctorTestCase):
 
 
 class NetworkCheckTests(DoctorTestCase):
-    def assert_offline_checks_do_not_probe(self):
+    def test_offline_checks_do_not_probe(self):
         checks = self.run_checks(network=False)
         self.assertNotIn("ntfy_reachability", [check["name"] for check in checks])
         self.assertNotIn("zcode_api", [check["name"] for check in checks])
@@ -526,17 +528,20 @@ class ReportTests(unittest.TestCase):
 
     def test_report_is_anonymized(self):
         home = str(Path.home())
+        forward_home = home.replace("\\", "/")
         checks = [
             {
                 "name": "path_check",
                 "status": "warn",
-                "detail": f"{home}{os.sep}.gemini{os.sep}config",
+                "detail": f"{home}{os.sep}.gemini{os.sep}config and {forward_home}/.gemini/bin",
             }
         ]
         text = doctor.format_report(checks)
         report = json.dumps(doctor.build_report(checks))
         self.assertNotIn(home, text)
+        self.assertNotIn(forward_home, text)
         self.assertNotIn(home, report)
+        self.assertNotIn(forward_home, report)
         self.assertIn("~", text)
 
     def test_unknown_status_is_treated_as_failure(self):

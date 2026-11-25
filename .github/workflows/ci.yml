@@ -56,7 +56,7 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - name: Install Android platform 37 (best effort)
         run: |
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37" "build-tools;37.0.0" > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0" "platforms;android-37" > /dev/null 2>&1 || true
       - name: Run Android unit tests and build community APK
         working-directory: android
         run: |

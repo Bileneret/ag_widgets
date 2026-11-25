@@ -212,10 +212,20 @@ if ($Uninstall) {
                 $backupDirs = @(Get-ChildItem -LiteralPath $BackupsRoot -Directory -Filter "install-*" | Sort-Object -Property Name -Descending)
                 foreach ($backupDirItem in $backupDirs) {
                     $candidate = Join-Path $backupDirItem.FullName "settings.json"
-                    if (Test-Path -LiteralPath $candidate) {
-                        $backupSettingsPath = $candidate
-                        break
+                    if (-not (Test-Path -LiteralPath $candidate)) {
+                        continue
                     }
+                    # Skip backups created during a reinstall that already contain agy_statusline.py.
+                    $candidateJson = Read-JsonObject -Path $candidate
+                    $candidateCmd = ""
+                    if ($candidateJson -and ($candidateJson.PSObject.Properties.Name -contains "statusLine") -and $candidateJson.statusLine -and $candidateJson.statusLine.command) {
+                        $candidateCmd = [string]$candidateJson.statusLine.command
+                    }
+                    if ($candidateCmd -match 'agy_statusline\.py') {
+                        continue
+                    }
+                    $backupSettingsPath = $candidate
+                    break
                 }
             }
             if ($backupSettingsPath) {
@@ -371,9 +381,15 @@ def load(path):
 
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_name(path.name + ".tmp")
-    temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temp_path, path)
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        temp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(temp_path, path)
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 # (a) Context hook.

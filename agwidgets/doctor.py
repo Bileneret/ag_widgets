@@ -43,6 +43,7 @@ SIDECAR_NAME = "ag-widgets-collector"
 _STATUS_MARKERS = {"ok": "[OK]", "warn": "[WARN]", "fail": "[FAIL]"}
 
 _HINTS = {
+    "python_version": "Install Python 3.10 or newer and pass -PythonPath to install.ps1 if needed.",
     "agy_cli": "Install Antigravity 2.0 or point AGY_PATH at the agy executable.",
     "annotations_dir": "Open a chat in Antigravity so the annotations directory exists.",
     "antigravity_hook": "Re-run install.ps1 to register the ag-widgets-context hook.",
@@ -150,6 +151,13 @@ def _extract_python_script(command: Any) -> str | None:
         if token.lower().endswith(".py"):
             return token
     return None
+
+
+def _check_python_version() -> tuple[str, str]:
+    version = platform_module.python_version()
+    if sys.version_info >= (3, 10):
+        return "ok", f"Python {version} (>= 3.10)"
+    return "fail", f"Python {version} is below the required 3.10"
 
 
 def _check_agy_cli() -> tuple[str, str]:
@@ -398,6 +406,7 @@ def run_checks(
             return
         checks.append(_check(name, str(status), str(detail)))
 
+    add("python_version", _check_python_version)
     add("agy_cli", _check_agy_cli)
     add("annotations_dir", lambda: _check_annotations_dir(home_path))
     add("antigravity_hook", lambda: _check_antigravity_hook(home_path))
@@ -419,13 +428,17 @@ def run_doctor(network: bool = False) -> list[dict[str, Any]]:
 def _anonymize(text: str) -> str:
     """Replace the user's home and runtime root with neutral placeholders."""
     result = str(text)
+    flags = re.IGNORECASE if sys.platform == "win32" else 0
     replacements = (
         (str(paths.local_app_data()), "%LOCALAPPDATA%"),
         (str(Path.home()), "~"),
     )
     for prefix, placeholder in replacements:
-        if prefix:
-            result = result.replace(prefix, placeholder)
+        if not prefix:
+            continue
+        variants = {prefix, prefix.replace("\\", "/"), prefix.replace("/", "\\")}
+        for variant in sorted(variants, key=len, reverse=True):
+            result = re.sub(re.escape(variant), lambda _: placeholder, result, flags=flags)
     return result
 
 

@@ -171,7 +171,7 @@ python collector\zcode_auth.py --clear-token       # забыть сохранё
 ```powershell
 python collector\collector.py --doctor          # человекочитаемые проверки
 python collector\collector.py --doctor-json     # обезличенный JSON для issue
-python collector\collector.py --online          # плюс сетевые проверки ntfy.sh и ZCode API
+python collector\collector.py --doctor --online # плюс сетевые проверки ntfy.sh и ZCode API
 ```
 
 `--doctor-json` никогда не печатает токен и топик. Показать приватный ntfy-топик для сопряжения телефона: `python collector\collector.py --show-topic`. Для работы с токеном: `python collector\zcode_auth.py --set-token-stdin` читает JWT из stdin (он не попадёт в историю команд и список процессов), а `--clear-token` удаляет сохранённый токен.
