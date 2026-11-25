@@ -4,21 +4,32 @@
  * Card 01: model context, health zones, and recent conversations.
  * Exposed as `window.AGW.context`.
  */
-(function (AGW) {
-  const { DEFAULT_RED_PCT, DEFAULT_YELLOW_PCT } = AGW.defaults;
-  const { clamp, formatTokens, formatWindow, prettyModel, shortAge } = AGW.format;
+(function (root) {
+  const AGW = (root.AGW = root.AGW || {});
+  const format = AGW.format || (typeof require === 'function' ? require('./format.js') : null);
+  const { clamp, computeZone, formatTokens, formatWindow, prettyModel, shortAge } = format;
+  const { DEFAULT_RED_PCT, DEFAULT_YELLOW_PCT } = format;
   const CIRCUMFERENCE = 2 * Math.PI * 48; // r=48 in the SVG gauge.
+
+  function validLevel(value) {
+    return value === 'green' || value === 'yellow' || value === 'red' ? value : null;
+  }
 
   function currentConversation(context, activeChat) {
     if (!context || !context.conversations) return null;
     const activeId = activeChat && activeChat.id;
-    const targetId = activeId && context.conversations[activeId] ? activeId : context.last;
-    return targetId && context.conversations[targetId] ? context.conversations[targetId] : null;
+    if (activeId) {
+      // A freshly opened chat is not in context.json yet. Never fall back to
+      // `context.last`, otherwise the live dot shows another chat's freshness.
+      return context.conversations[activeId] || null;
+    }
+    const lastId = context.last;
+    return lastId && context.conversations[lastId] ? context.conversations[lastId] : null;
   }
 
   function contextInfo(context, status, activeChat) {
     const summary = (status && status.context_summary) || {};
-    const activeId = activeChat && activeChat.id;
+    const activeId = (activeChat && activeChat.id) || null;
     const conversations = (context && context.conversations) || {};
     let current = null;
     let selectedId = null;
@@ -53,20 +64,28 @@
         summary,
         conversations,
         activeChat,
-        activeId: activeId || null,
+        activeId,
         selectedId: activeId || (context && context.last) || null,
+        window: null,
+        tokens: null,
+        pct: null,
+        level: 'unknown',
+        yellowPct: DEFAULT_YELLOW_PCT,
+        redPct: DEFAULT_RED_PCT,
+        warnTokens: null,
+        riskTokens: null,
+        known: false,
       };
     }
 
     const window =
       typeof current.window === 'number' && current.window > 0
         ? current.window
-        : typeof summary.window === 'number'
+        : typeof summary.window === 'number' && summary.window > 0
           ? summary.window
           : null;
-    const tokens = typeof current.tokens === 'number' ? current.tokens : null;
-    let pct = typeof current.pct === 'number' ? current.pct : null;
-    if (pct === null && tokens !== null && window) pct = (tokens / window) * 100;
+    const tokens =
+      typeof current.tokens === 'number' && Number.isFinite(current.tokens) ? current.tokens : null;
 
     const yellowPct =
       typeof current.yellow_pct === 'number'
@@ -81,21 +100,33 @@
           ? summary.red_pct
           : DEFAULT_RED_PCT;
 
-    let level = current.level;
-    if (level !== 'green' && level !== 'yellow' && level !== 'red') {
-      level = pct === null ? 'unknown' : pct >= redPct ? 'red' : pct >= yellowPct ? 'yellow' : 'green';
+    const zone = computeZone(tokens, window, yellowPct, redPct);
+    const known = window !== null;
+
+    let level = zone.level;
+    if (level === 'unknown') {
+      // Trust a wire level only when the window is known; never invent a
+      // "green" zone for a model whose context size could not be resolved.
+      const wireLevel = validLevel(current.level);
+      if (wireLevel && known) level = wireLevel;
     }
 
+    const pct =
+      zone.pct !== null
+        ? zone.pct
+        : typeof current.pct === 'number' && Number.isFinite(current.pct)
+          ? current.pct
+          : null;
     const warnTokens =
-      typeof current.warn_tokens === 'number'
+      typeof current.warn_tokens === 'number' && Number.isFinite(current.warn_tokens)
         ? current.warn_tokens
-        : window
+        : window !== null
           ? Math.round((window * yellowPct) / 100)
           : null;
     const riskTokens =
-      typeof current.risk_tokens === 'number'
+      typeof current.risk_tokens === 'number' && Number.isFinite(current.risk_tokens)
         ? current.risk_tokens
-        : window
+        : window !== null
           ? Math.round((window * redPct) / 100)
           : null;
 
@@ -104,7 +135,7 @@
       summary,
       conversations,
       activeChat,
-      activeId: activeId || null,
+      activeId,
       selectedId: selectedId || activeId || (context && context.last) || null,
       window,
       tokens,
@@ -114,7 +145,76 @@
       redPct,
       warnTokens,
       riskTokens,
+      known,
     };
+  }
+
+  /**
+   * Paint the health zone through CSS classes and percentage variables only:
+   * the colours for dark/light themes live in styles.css.
+   */
+  function renderZone(info) {
+    const track = document.getElementById('zone-track');
+    const marker = document.getElementById('zone-marker');
+    const warnLabel = document.getElementById('zone-warn-label');
+    const riskLabel = document.getElementById('zone-risk-label');
+
+    if (track) {
+      const state = info && info.known ? info.level : 'unknown';
+      const className =
+        state === 'green'
+          ? 'level-green'
+          : state === 'yellow'
+            ? 'level-yellow'
+            : state === 'red'
+              ? 'level-red'
+              : 'is-unknown';
+      track.classList.remove('level-green', 'level-yellow', 'level-red', 'is-unknown');
+      track.classList.add(className);
+
+      if (info && info.known) {
+        const warnStop = clamp(Math.round(info.yellowPct), 1, 98);
+        const riskStop = clamp(Math.max(Math.round(info.redPct), warnStop + 1), 2, 100);
+        track.style.setProperty('--zone-warn-stop', `${warnStop}%`);
+        track.style.setProperty('--zone-risk-stop', `${riskStop}%`);
+        track.title =
+          `Порог ${Math.round(info.yellowPct)}% и ${Math.round(info.redPct)}% окна. ` +
+          `После ~${Math.round(info.yellowPct)}% деградация на сложных задачах заметна, ` +
+          `после ~${Math.round(info.redPct)}% надёжная часть окна обычно заканчивается ` +
+          '(RULER, NoLiMa, Chroma Context Rot).';
+      } else {
+        track.title = 'Окно модели неизвестно: задайте model_windows в config.json';
+      }
+    }
+
+    if (marker) marker.style.left = `${clamp(typeof info.pct === 'number' ? info.pct : 0, 0, 100)}%`;
+    if (warnLabel) {
+      warnLabel.textContent =
+        info && info.known && info.warnTokens !== null
+          ? `надёжно до ${formatTokens(info.warnTokens)}`
+          : 'надёжно до —';
+    }
+    if (riskLabel) {
+      riskLabel.textContent =
+        info && info.known && info.riskTokens !== null
+          ? `риск после ${formatTokens(info.riskTokens)}`
+          : 'риск после —';
+    }
+  }
+
+  /** Footer legend follows the backend thresholds, or shows a dash while the window is unknown. */
+  function renderLegend(info) {
+    const ok = document.getElementById('legend-ok');
+    const warn = document.getElementById('legend-warn');
+    const risk = document.getElementById('legend-risk');
+    if (!ok && !warn && !risk) return;
+
+    const known = Boolean(info && info.known);
+    const yellow = known ? Math.round(info.yellowPct) : null;
+    const red = known ? Math.round(info.redPct) : null;
+    if (ok) ok.textContent = known ? `0–${yellow}%` : '—';
+    if (warn) warn.textContent = known ? `${yellow}–${red}%` : '—';
+    if (risk) risk.textContent = known ? `${red}%+` : '—';
   }
 
   function renderEmpty(info) {
@@ -141,17 +241,15 @@
     document.getElementById('ring-satellite').style.opacity = '0';
 
     const material = document.getElementById('ctx-material');
-    material.textContent = hasChat ? info.activeChat.title.toUpperCase() : 'NO SESSION';
+    material.textContent = hasChat ? info.activeChat.title.toUpperCase() : 'НЕТ СЕССИИ';
     material.title = info.activeChat ? info.activeChat.title : '';
 
     const recent = document.getElementById('ctx-recent');
     recent.innerHTML = '';
     recent.classList.add('hidden');
 
-    document.getElementById('zone-track').style.background = 'rgba(255, 255, 255, 0.08)';
-    document.getElementById('zone-marker').style.left = '0%';
-    document.getElementById('zone-warn-label').textContent = 'надёжно до —';
-    document.getElementById('zone-risk-label').textContent = 'риск после —';
+    renderZone(info);
+    renderLegend(info);
   }
 
   function renderRecent(info) {
@@ -171,8 +269,12 @@
     for (const [, item] of others) {
       const chip = document.createElement('div');
       chip.className = 'recent-chip';
+      const knownWindow = typeof item.window === 'number' && item.window > 0;
+      const zone = computeZone(item.tokens, item.window);
+      const itemLevel =
+        (knownWindow && validLevel(item.level)) || (zone.pct !== null ? zone.level : 'unknown');
       const dot = document.createElement('span');
-      dot.className = `dot-sm dot-${item.level === 'red' || item.level === 'yellow' ? item.level : 'green'}`;
+      dot.className = `dot-sm dot-${itemLevel}`;
       const name = document.createElement('span');
       name.className = 'recent-name';
       name.textContent = item.workspace || prettyModel(item.model);
@@ -210,7 +312,8 @@
           : 0.015;
     ring.style.strokeDashoffset = (CIRCUMFERENCE * (1 - ratio)).toFixed(2);
 
-    const levelColor = level === 'red' ? 'var(--risk)' : level === 'yellow' ? 'var(--warn)' : 'var(--ok)';
+    const levelColor =
+      level === 'red' ? 'var(--risk)' : level === 'yellow' ? 'var(--warn)' : level === 'green' ? 'var(--ok)' : 'var(--glow)';
     ring.style.stroke = levelColor;
     satellite.style.fill = levelColor;
     const angle = -Math.PI / 2 + Math.PI * 2 * ratio;
@@ -251,33 +354,14 @@
       alert.classList.add('hidden');
     }
 
-    const zoneTrack = document.getElementById('zone-track');
-    const zoneMarker = document.getElementById('zone-marker');
-    if (window && typeof info.yellowPct === 'number') {
-      const warn = clamp(info.yellowPct, 1, 98);
-      const risk = clamp(Math.max(info.redPct, warn + 1), 2, 100);
-      zoneTrack.style.background =
-        'linear-gradient(90deg,' +
-        `rgba(52,211,153,0.55) 0%, rgba(52,211,153,0.55) ${warn}%,` +
-        `rgba(251,191,36,0.62) ${warn}%, rgba(251,191,36,0.62) ${risk}%,` +
-        `rgba(251,113,133,0.68) ${risk}%, rgba(251,113,133,0.68) 100%)`;
-      zoneMarker.style.left = `${clamp(pct || 0, 0, 100)}%`;
-      document.getElementById('zone-warn-label').textContent = `надёжно до ${formatTokens(info.warnTokens)}`;
-      document.getElementById('zone-risk-label').textContent = `риск после ${formatTokens(info.riskTokens)}`;
-      zoneTrack.title =
-        `Порог ${Math.round(info.yellowPct)}% и ${Math.round(info.redPct)}% окна. ` +
-        'После ~40% деградация на сложных задачах заметна, после ~65% надёжная часть окна обычно заканчивается ' +
-        '(RULER, NoLiMa, Chroma Context Rot).';
-    } else {
-      zoneTrack.style.background = 'rgba(255, 255, 255, 0.08)';
-      zoneMarker.style.left = `${clamp(pct || 0, 0, 100)}%`;
-      document.getElementById('zone-warn-label').textContent = 'надёжно до —';
-      document.getElementById('zone-risk-label').textContent = 'риск после —';
-      zoneTrack.title = 'Окно модели неизвестно: задайте model_windows в config.json';
-    }
-
+    renderZone(info);
+    renderLegend(info);
     renderRecent(info);
   }
 
   AGW.context = { currentConversation, contextInfo, render };
-})(window.AGW = window.AGW || {});
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { currentConversation, contextInfo, render };
+  }
+})(typeof window !== 'undefined' ? window : globalThis);
