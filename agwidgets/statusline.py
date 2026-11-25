@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,14 +12,30 @@ from typing import Any
 from . import antigravity, context_model as cm, paths
 
 
+def _as_finite_float(value: Any) -> float | None:
+    """Return ``value`` as a finite float, ignoring booleans and junk."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _token_count(value: Any) -> int:
+    number = _as_finite_float(value)
+    return int(number) if number is not None else 0
+
+
 def _percent_text(info: dict[str, Any] | None) -> str:
     if not isinstance(info, dict):
         return "--"
-    fraction = info.get("remaining_fraction")
-    if isinstance(fraction, (int, float)):
-        return f"{round(fraction * 100)}%"
-    amount = info.get("remaining_amount")
-    if isinstance(amount, (int, float)):
+    fraction = _as_finite_float(info.get("remaining_fraction"))
+    if fraction is not None:
+        return f"{max(0, min(100, round(fraction * 100)))}%"
+    amount = _as_finite_float(info.get("remaining_amount"))
+    if amount is not None:
         return cm.format_tokens(amount)
     return "--"
 
@@ -54,25 +71,29 @@ def run(raw_input: str) -> str:
         try:
             if size and int(size) > 0 and model_name:
                 cm.save_learned_window(state_dir, model_name, size)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OSError, OverflowError):
             pass
 
-    previous = _load_previous(state_dir)
-    status = {
-        **previous,
-        "plan_tier": plan_tier if plan_tier is not None else previous.get("plan_tier"),
-        "quota": quota if quota else (previous.get("quota") or {}),
-        "context_window": context_window or previous.get("context_window"),
-        "model": model_name or previous.get("model"),
-        "saved_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-    }
+    def merge_status(previous: dict[str, Any]) -> dict[str, Any]:
+        previous_quota = previous.get("quota")
+        return {
+            **previous,
+            "plan_tier": plan_tier if plan_tier is not None else previous.get("plan_tier"),
+            "quota": quota if quota else (previous_quota if isinstance(previous_quota, dict) else {}),
+            "context_window": context_window or previous.get("context_window"),
+            "model": model_name or previous.get("model"),
+            "saved_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        }
+
+    status = merge_status(_load_previous(state_dir))
     try:
-        paths.write_json(state_dir / "agy_status.json", status)
-    except OSError:
+        status = paths.update_json(state_dir / "agy_status.json", merge_status)
+    except (OSError, paths.ConfigReadError):
         pass
 
-    five_hour = antigravity.pick_bucket(quota, "5h", "gemini")
-    weekly = antigravity.pick_bucket(quota, "week", "gemini")
+    status_quota = status.get("quota") if isinstance(status.get("quota"), dict) else {}
+    five_hour = antigravity.pick_bucket(status_quota, "5h", "gemini")
+    weekly = antigravity.pick_bucket(status_quota, "week", "gemini")
 
     parts: list[str] = []
     if five_hour is not None:
@@ -81,15 +102,19 @@ def run(raw_input: str) -> str:
         parts.append(f"wk {_percent_text(weekly)}")
 
     if isinstance(context_window, dict):
-        used_pct = context_window.get("used_percentage")
-        size = context_window.get("context_window_size")
-        usage = context_window.get("current_usage") if isinstance(context_window.get("current_usage"), dict) else {}
-        used_tokens = (usage.get("input_tokens") or 0) + (usage.get("cache_read_input_tokens") or 0)
-        if isinstance(used_pct, (int, float)):
-            parts.append(f"ctx {round(float(used_pct))}%")
-        if isinstance(size, (int, float)) and size > 0:
-            used_text = cm.format_tokens(used_tokens) if isinstance(used_tokens, int) and used_tokens > 0 else None
-            parts.append(f"{used_text or '?'}/{cm.format_window(size)}")
+        used_pct = _as_finite_float(context_window.get("used_percentage"))
+        size_number = _as_finite_float(context_window.get("context_window_size"))
+        usage = context_window.get("current_usage")
+        used_tokens = None
+        if isinstance(usage, dict):
+            used_tokens = _token_count(usage.get("input_tokens")) + _token_count(
+                usage.get("cache_read_input_tokens")
+            )
+        if used_pct is not None:
+            parts.append(f"ctx {round(used_pct)}%")
+        if size_number is not None and size_number > 0:
+            used_text = cm.format_tokens(used_tokens) if used_tokens is not None else "?"
+            parts.append(f"{used_text}/{cm.format_window(size_number)}")
 
     return "AG " + " · ".join(parts) if parts else "AG ready"
 
@@ -97,6 +122,17 @@ def run(raw_input: str) -> str:
 def main() -> None:
     raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
     line = run(raw)
-    if line:
+    if not line:
+        return
+    data = line.encode("utf-8", errors="replace") + b"\n"
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write(data)
+        buffer.flush()
+        return
+    try:
         sys.stdout.write(line + "\n")
-        sys.stdout.flush()
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        sys.stdout.write(line.encode(encoding, errors="replace").decode(encoding, errors="replace") + "\n")
+    sys.stdout.flush()
