@@ -1,26 +1,81 @@
 'use strict';
 
 const crypto = require('crypto');
-const { shell } = require('electron');
-const { SECRETS_PATH } = require('./paths');
-const { readJson, writeJsonAtomic } = require('./storage');
-const { runCollector } = require('./collector');
+const { logError } = require('./logger');
+const {
+  runCollector,
+  saveZCodeTokenViaPython,
+  clearZCodeTokenViaPython,
+} = require('./collector');
 
 const ZCODE_INIT_URL = 'https://zcode.z.ai/api/v1/oauth/cli/init';
 const ZCODE_POLL_BASE = 'https://zcode.z.ai/api/v1/oauth/cli/poll';
 const LOGIN_TIMEOUT_MS = 300_000;
+const CANCELLED_ERROR = 'Sign-in cancelled';
 
 let loginInFlight = false;
+let cancelController = null;
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Resolve the Electron shell lazily: this module must stay importable under
+ * plain `node --test`, where the `electron` package is not available.
+ */
+function electronShell() {
+  try {
+    const electron = require('electron');
+    return electron && electron.shell ? electron.shell : null;
+  } catch {
+    return null;
+  }
 }
 
+function cancelledResult() {
+  return { ok: false, error: CANCELLED_ERROR, cancelled: true };
+}
+
+/** Sleep that resolves early when the sign-in is cancelled. */
+function sleep(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal && signal.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    if (signal) signal.addEventListener('abort', finish, { once: true });
+  });
+}
+
+/**
+ * Perform one JSON request. Authorized requests use `redirect: 'error'` so a
+ * bearer token can never follow a redirect to another host. An external
+ * `signal` (sign-in cancellation) aborts both the request and its body read.
+ */
 async function fetchJson(url, options = {}, timeoutMs = 20_000) {
+  const { signal: externalSignal, ...rest } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener('abort', abort, { once: true });
+  }
+
+  const headers = rest.headers || {};
+  const authorized = Object.keys(headers).some(
+    (name) => String(name).toLowerCase() === 'authorization',
+  );
+
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    const response = await fetch(url, {
+      ...rest,
+      redirect: authorized ? 'error' : rest.redirect,
+      signal: controller.signal,
+    });
     const text = await response.text();
     let json = null;
     try {
@@ -31,14 +86,24 @@ async function fetchJson(url, options = {}, timeoutMs = 20_000) {
     return { status: response.status, json };
   } finally {
     clearTimeout(timer);
+    if (externalSignal) externalSignal.removeEventListener('abort', abort);
   }
 }
 
-/** Only open Z.ai HTTPS URLs, never an arbitrary scheme from a server response. */
+/**
+ * Only open Z.ai HTTPS URLs, never an arbitrary scheme or host from a server
+ * response, and never a URL carrying credentials or a non-standard port.
+ */
 function isTrustedAuthorizeUrl(value) {
   try {
     const url = new URL(String(value));
-    return url.protocol === 'https:' && (url.hostname === 'z.ai' || url.hostname.endsWith('.z.ai'));
+    return (
+      url.protocol === 'https:' &&
+      (url.hostname === 'z.ai' || url.hostname.endsWith('.z.ai')) &&
+      !url.username &&
+      !url.password &&
+      (url.port === '' || url.port === '443')
+    );
   } catch {
     return false;
   }
@@ -46,11 +111,13 @@ function isTrustedAuthorizeUrl(value) {
 
 /**
  * Run the ZCode OAuth flow: open the browser, poll until the server returns a
- * token, save it locally, and refresh the collector.
+ * token, save it through the Python DPAPI bridge, and refresh the collector.
  */
 async function zcodeLogin() {
   if (loginInFlight) return { ok: false, error: 'Login already in progress' };
   loginInFlight = true;
+  const controller = new AbortController();
+  cancelController = controller;
 
   try {
     const pollToken = crypto.randomBytes(32).toString('hex');
@@ -63,6 +130,7 @@ async function zcodeLogin() {
       method: 'POST',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: 'zai' }),
+      signal: controller.signal,
     });
     const initData = init.json && init.json.data;
     if (init.status !== 200 || !init.json || init.json.code !== 0 || !initData) {
@@ -75,8 +143,12 @@ async function zcodeLogin() {
     if (!isTrustedAuthorizeUrl(authorizeUrl)) throw new Error('Refusing an untrusted sign-in URL');
 
     const intervalSec = Math.max(2, Math.min(10, Number(initData.poll_interval_sec) || 3));
+    const shell = electronShell();
     try {
-      await shell.openExternal(authorizeUrl);
+      if (!shell || typeof shell.openExternal !== 'function') {
+        throw new Error('Electron shell is unavailable');
+      }
+      await shell.openExternal(new URL(authorizeUrl).toString());
     } catch {
       throw new Error('Could not open the browser for sign-in');
     }
@@ -85,13 +157,18 @@ async function zcodeLogin() {
     const deadline = Date.now() + LOGIN_TIMEOUT_MS;
 
     while (Date.now() < deadline) {
-      await sleep(intervalSec * 1000);
+      await sleep(intervalSec * 1000, controller.signal);
+      if (controller.signal.aborted) throw new Error(CANCELLED_ERROR);
+
       let poll;
       try {
-        poll = await fetchJson(pollUrl, { headers: authHeaders });
-      } catch {
+        poll = await fetchJson(pollUrl, { headers: authHeaders, signal: controller.signal });
+      } catch (error) {
+        if (controller.signal.aborted) throw new Error(CANCELLED_ERROR);
         continue;
       }
+      if (controller.signal.aborted) throw new Error(CANCELLED_ERROR);
+
       if (poll.status >= 400 && poll.status < 500 && poll.status !== 408 && poll.status !== 429) {
         throw new Error(`Sign-in session expired (HTTP ${poll.status})`);
       }
@@ -104,23 +181,80 @@ async function zcodeLogin() {
       if (status === 'ready') {
         const token = String(data.token || '').trim();
         if (!token) throw new Error('Server did not return a token');
+        if (controller.signal.aborted) throw new Error(CANCELLED_ERROR);
 
-        const secrets = readJson(SECRETS_PATH) || {};
-        secrets.zcode_token = token;
-        if (!secrets.device_mid) secrets.device_mid = crypto.randomUUID();
-        writeJsonAtomic(SECRETS_PATH, secrets);
+        // The Python helper is the single owner of secrets.json: it encrypts
+        // the token with DPAPI and never exposes it through argv.
+        const saved = await saveZCodeTokenViaPython(token);
+        if (!saved || saved.ok !== true) {
+          throw new Error((saved && saved.error) || 'Could not save the ZCode token');
+        }
 
-        const refreshed = await runCollector();
-        return { ok: true, refreshed: Boolean(refreshed && refreshed.ok) };
+        // A sign-out may have started while the Python helper was writing the
+        // token; undo that write so the user's cancellation always wins.
+        if (controller.signal.aborted) {
+          await clearZCodeTokenViaPython();
+          return cancelledResult();
+        }
+
+        const refreshed = await runCollector({ force: true, waitIfBusy: true });
+        return {
+          ok: true,
+          refreshed: Boolean(refreshed && refreshed.ok),
+          encrypted: Boolean(saved.encrypted),
+        };
       }
     }
 
     throw new Error('Sign-in timed out');
   } catch (error) {
+    if (controller.signal.aborted) return cancelledResult();
     return { ok: false, error: String((error && error.message) || error) };
   } finally {
     loginInFlight = false;
+    if (cancelController === controller) cancelController = null;
   }
 }
 
-module.exports = { zcodeLogin };
+/** Abort an active sign-in; safe to call at any time, including no-op cases. */
+function cancelZCodeLogin() {
+  const cancelled = Boolean(cancelController);
+  if (cancelController) {
+    try {
+      cancelController.abort();
+    } catch {
+      // Already aborted.
+    }
+  }
+  return { ok: true, cancelled };
+}
+
+/**
+ * Forget the saved ZCode token through the Python DPAPI bridge and refresh the
+ * collector so the widget switches to the signed-out state immediately.
+ */
+async function zcodeLogout() {
+  cancelZCodeLogin();
+
+  let cleared = false;
+  try {
+    const result = await clearZCodeTokenViaPython();
+    if (!result || result.ok !== true) {
+      throw new Error((result && result.error) || 'Could not clear the ZCode token');
+    }
+    cleared = true;
+
+    const refreshed = await runCollector({ force: true, waitIfBusy: true });
+    return { ok: true, cleared: true, refreshed: Boolean(refreshed && refreshed.ok) };
+  } catch (error) {
+    logError('zcode-token', error);
+    return {
+      ok: false,
+      cleared,
+      refreshed: false,
+      error: String((error && error.message) || error),
+    };
+  }
+}
+
+module.exports = { zcodeLogin, cancelZCodeLogin, zcodeLogout, isTrustedAuthorizeUrl };
