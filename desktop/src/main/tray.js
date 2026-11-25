@@ -115,6 +115,12 @@ function logoutZCode() {
     .catch(() => {});
 }
 
+/** Open (or focus) the separate Settings window. */
+function openSettings() {
+  const api = windowApi();
+  if (api && typeof api.openSettingsWindow === 'function') api.openSettingsWindow();
+}
+
 function openConfigDir() {
   const electron = electronApi();
   const shell = electron && electron.shell ? electron.shell : null;
@@ -188,6 +194,7 @@ function buildMenuTemplate({
         return handler(checked);
       },
     },
+    { label: 'Настройки…', click: pickHandler(handlers.openSettings, openSettings) },
     { type: 'separator' },
     { label: 'Открыть папку конфига', click: pickHandler(handlers.openConfigDir, openConfigDir) },
     { label: 'Открыть Z.ai', click: pickHandler(handlers.openZCodeWeb, openZCodeWeb) },
@@ -275,4 +282,10 @@ function showContextMenu() {
   if (menu) menu.popup({ window });
 }
 
-module.exports = { createTray, showContextMenu, refreshMenu, buildMenuTemplate };
+module.exports = {
+  createTray,
+  showContextMenu,
+  refreshMenu,
+  buildMenuTemplate,
+  loginItemOptions,
+};

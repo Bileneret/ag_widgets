@@ -1,19 +1,43 @@
 'use strict';
 
 const path = require('path');
-const { app, BrowserWindow, screen, session } = require('electron');
+const { app, BrowserWindow, screen, session, nativeTheme } = require('electron');
 const { windowStatePath } = require('./paths');
 const { readAllState, readJson, writeJsonAtomic } = require('./storage');
 const { logError } = require('./logger');
+const appearance = require('./appearance');
 
 const WINDOW_WIDTH = 400;
 const WINDOW_HEIGHT = 640;
+const SETTINGS_WIDTH = 390;
+const SETTINGS_HEIGHT = 540;
+/** Gap between the widget and the Settings window. */
+const SETTINGS_GAP = 12;
 /** Minimum slice of the title bar that must stay on screen while dragging. */
 const TITLEBAR_GRAB = 48;
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 
 let mainWindow = null;
+let settingsWindow = null;
 let moveSaveTimer = null;
+
+/** Windows dark mode flag; never throws outside Electron. */
+function systemPrefersDark() {
+  try {
+    return Boolean(nativeTheme && nativeTheme.shouldUseDarkColors);
+  } catch {
+    return false;
+  }
+}
+
+/** Current snapshot of the appearance part of the settings. */
+function currentAppearance() {
+  const settings = appearance.loadAppearance();
+  return {
+    settings,
+    effectiveTheme: appearance.resolveEffectiveTheme(settings, systemPrefersDark()),
+  };
+}
 
 function loadWindowState() {
   const saved = readJson(windowStatePath());
@@ -99,6 +123,7 @@ function pushState(state) {
 
 function createWindow() {
   const saved = loadWindowState();
+  const { settings: currentSettings, effectiveTheme } = currentAppearance();
   const display = screen.getPrimaryDisplay().workArea;
   const defaultX = display.x + display.width - WINDOW_WIDTH - 24;
   const defaultY = display.y + 24;
@@ -123,9 +148,10 @@ function createWindow() {
     // No `backgroundMaterial: 'acrylic'`: it only works on Windows 11 and, with a
     // transparent base color, renders an opaque black frame on other systems.
     // A solid base keeps the window correct everywhere; `.widget-shell` in CSS
-    // provides the translucent cards.
+    // provides the translucent cards. The base color follows the saved theme so
+    // the first paint never flashes the wrong shade.
     transparent: false,
-    backgroundColor: '#0a0e13',
+    backgroundColor: appearance.windowBackgroundColor(effectiveTheme),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', '..', 'preload.js'),
@@ -136,6 +162,14 @@ function createWindow() {
   });
 
   if (saved.alwaysOnTop) mainWindow.setAlwaysOnTop(true, 'floating');
+
+  // Window opacity is part of the appearance settings; Electron may refuse a
+  // negative or unsupported value on some platforms, so it never propagates.
+  try {
+    mainWindow.setOpacity(currentSettings.opacity);
+  } catch (error) {
+    logError('setOpacity', error);
+  }
 
   // Hardening: the widget never navigates away, opens no child windows and
   // grants no permissions to web content.
@@ -210,6 +244,148 @@ function createWindow() {
   return mainWindow;
 }
 
+/**
+ * Place the Settings window next to the widget: to the right when it fits the
+ * primary work area, otherwise to the left, clamped so both stay visible.
+ */
+function settingsWindowPosition() {
+  const area = screen.getPrimaryDisplay().workArea;
+  const main = getWindow();
+  const bounds = main
+    ? main.getBounds()
+    : {
+        x: area.x + area.width - WINDOW_WIDTH - 24,
+        y: area.y + 24,
+        width: WINDOW_WIDTH,
+        height: WINDOW_HEIGHT,
+      };
+  const rightX = bounds.x + bounds.width + SETTINGS_GAP;
+  const leftX = bounds.x - SETTINGS_WIDTH - SETTINGS_GAP;
+  const fitsRight = rightX + SETTINGS_WIDTH <= area.x + area.width;
+  const preferredX = fitsRight ? rightX : leftX;
+  return {
+    x: Math.round(Math.max(area.x, Math.min(preferredX, area.x + area.width - SETTINGS_WIDTH))),
+    y: Math.round(Math.max(area.y, Math.min(bounds.y, area.y + area.height - SETTINGS_HEIGHT))),
+  };
+}
+
+/**
+ * Open the separate Settings window next to the widget. A second call focuses
+ * the existing window instead of creating a duplicate.
+ */
+function openSettingsWindow() {
+  const existing = getSettingsWindow();
+  if (existing) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return existing;
+  }
+
+  const { effectiveTheme } = currentAppearance();
+  const position = settingsWindowPosition();
+
+  settingsWindow = new BrowserWindow({
+    width: SETTINGS_WIDTH,
+    height: SETTINGS_HEIGHT,
+    x: position.x,
+    y: position.y,
+    // Native frame on purpose: the Settings window is a regular utility window.
+    title: 'Настройки — AG Widgets',
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    icon: path.join(ASSETS_DIR, 'icon-256.png'),
+    backgroundColor: appearance.windowBackgroundColor(effectiveTheme),
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, '..', '..', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  settingsWindow.webContents.on('will-navigate', (event) => event.preventDefault());
+  settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  settingsWindow.once('ready-to-show', () => {
+    const window = getSettingsWindow();
+    if (window) window.show();
+  });
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+
+  settingsWindow.loadFile(path.join(__dirname, '..', '..', 'settings.html'));
+  return settingsWindow;
+}
+
+function getSettingsWindow() {
+  return settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null;
+}
+
+/** Destroy the Settings window; safe when it is already closed. */
+function closeSettingsWindow() {
+  const window = getSettingsWindow();
+  if (!window) return;
+  try {
+    window.destroy();
+  } catch (error) {
+    logError('closeSettingsWindow', error);
+  }
+  settingsWindow = null;
+}
+
+/** Broadcast the appearance snapshot to every live window. */
+function pushAppearance(snapshot) {
+  const payload = snapshot || null;
+  for (const window of [getWindow(), getSettingsWindow()]) {
+    if (!window) continue;
+    try {
+      window.webContents.send('agw:appearance', payload);
+    } catch (error) {
+      logError('pushAppearance', error);
+    }
+  }
+}
+
+/** Re-apply opacity/background to both windows and broadcast the snapshot. */
+function applyAppearanceToWindows(snapshot) {
+  if (!snapshot) return;
+  const backgroundColor = appearance.windowBackgroundColor(snapshot.effectiveTheme);
+  const opacity = snapshot.appearance ? snapshot.appearance.opacity : undefined;
+
+  const main = getWindow();
+  if (main) {
+    if (typeof opacity === 'number') {
+      try {
+        main.setOpacity(opacity);
+      } catch (error) {
+        logError('setOpacity', error);
+      }
+    }
+    try {
+      main.setBackgroundColor(backgroundColor);
+    } catch (error) {
+      logError('setBackgroundColor', error);
+    }
+  }
+
+  const settings = getSettingsWindow();
+  if (settings) {
+    try {
+      settings.setBackgroundColor(backgroundColor);
+    } catch (error) {
+      logError('setBackgroundColor', error);
+    }
+  }
+
+  pushAppearance(snapshot);
+}
+
 function getWindow() {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
 }
@@ -270,6 +446,11 @@ function moveWindow(dx, dy) {
 module.exports = {
   createWindow,
   getWindow,
+  openSettingsWindow,
+  getSettingsWindow,
+  closeSettingsWindow,
+  applyAppearanceToWindows,
+  pushAppearance,
   showWindow,
   hideWindow,
   minimizeWindow,
