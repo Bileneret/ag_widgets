@@ -71,8 +71,8 @@ Runtime-данные никогда не лежат в репозитории:
 
 ```text
 %LOCALAPPDATA%\ag-widgets\
-  config.json         runtime-конфиг (топик, пороги, оверрайды)
-  secrets.json        токен ZCode и device id
+  config.json         runtime-конфиг (пороги, окна моделей, python_path)
+  secrets.json        токен ZCode, ntfy-топик (DPAPI `dpapi:v1:` на Windows) и device id
   state\              context.json, status.json, agy_status.json, learned windows
 ```
 
@@ -106,14 +106,20 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 6. один раз запускает коллектор и создаёт приватный ntfy-топик;
 7. создаёт ярлыки **AG Widgets** на рабочем столе и в меню «Пуск».
 
+Перед изменением интеграции Antigravity установщик копирует существующие файлы `~/.gemini/config/*` в `%LOCALAPPDATA%\ag-widgets\backups\install-<timestamp>\`.
+
 Полезные флаги:
 
 ```powershell
 .\install.ps1 -PythonPath "C:\Path\To\python.exe"   # явный интерпретатор
 .\install.ps1 -NoShortcut                           # без ярлыков
+.\install.ps1 -DryRun                               # показать шаги, ничего не записывая
+.\install.ps1 -Uninstall                            # удалить только записи ag-widgets
 ```
 
-> `ntfy_topic` в `config.json` — секрет. Кто знает топик, тот читает опубликованные числа. Не коммитьте и не передавайте его.
+`-DryRun` ничего не пишет. `-Uninstall` удаляет только записи, которые зарегистрировал ag-widgets, и не трогает `%LOCALAPPDATA%\ag-widgets`.
+
+> `ntfy_topic` — секрет: кто знает топик, тот читает опубликованные числа. Топик и токен ZCode лежат в `secrets.json`; на Windows они зашифрованы DPAPI (`dpapi:v1:`), на Android — в приватных `SharedPreferences` под `AndroidKeyStore` AES-256-GCM (`ks:v1:`). Не коммитьте и не передавайте их.
 
 ### Запуск
 
@@ -133,7 +139,8 @@ npm start
 ```powershell
 python collector\zcode_auth.py            # вход через браузер
 python collector\zcode_auth.py --status   # проверить сохранённый токен
-python collector\zcode_auth.py --set-token <jwt>
+python collector\zcode_auth.py --set-token-stdin   # вставить JWT через stdin (не попадёт в argv)
+python collector\zcode_auth.py --clear-token       # забыть сохранённый токен
 ```
 
 Без токена карточка честно показывает «не подключён». Эвристик по тексту окна больше нет: состояние ваучера приходит только из API ZCode.
@@ -156,6 +163,18 @@ python collector\zcode_auth.py --set-token <jwt>
 - `context_thresholds` — проценты реального окна, где карточка становится жёлтой/красной.
 
 Установщик также пишет сюда `python_path`, чтобы виджет мог запускать обновление.
+
+### Диагностика
+
+Проверки только для чтения, безопасные в любой момент (`--doctor` возвращает код `1`, если проверка провалилась):
+
+```powershell
+python collector\collector.py --doctor          # человекочитаемые проверки
+python collector\collector.py --doctor-json     # обезличенный JSON для issue
+python collector\collector.py --online          # плюс сетевые проверки ntfy.sh и ZCode API
+```
+
+`--doctor-json` никогда не печатает токен и топик. Показать приватный ntfy-топик для сопряжения телефона: `python collector\collector.py --show-topic`. Для работы с токеном: `python collector\zcode_auth.py --set-token-stdin` читает JWT из stdin (он не попадёт в историю команд и список процессов), а `--clear-token` удаляет сохранённый токен.
 
 ### Превью дизайна без Electron
 
@@ -236,7 +255,7 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза с
 3. Нажмите **Войти в Z.ai** для автономной проверки ваучеров и баланса.
 4. Нажмите **Обновить**, затем **Добавить виджет на экран**.
 
-Приложение обновляется каждые 15 минут (минимум WorkManager). Вручную: кнопка в приложении, **⟳** в карточке контекста или тап по виджету. После переключения чата на ПК десктоп публикует новый активный чат сразу; на телефоне нажмите **⟳**, чтобы подхватить его.
+Приложение обновляется каждые 15 минут (минимум WorkManager). Вручную: кнопка в приложении или **⟳** в карточке контекста. Тап по виджету открывает приложение, а кнопка **⟳** на виджете обновляет данные вручную. После переключения чата на ПК десктоп публикует новый активный чат сразу; на телефоне нажмите **⟳**, чтобы подхватить его.
 
 > applicationId — `dev.agwidgets`. Если раньше было установлено приватное приложение с другим id, сначала удалите его: Android не переносит настройки между applicationId.
 
@@ -247,9 +266,9 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза с
 ## Приватность
 
 - В ntfy уходят числа квот, счётчик токенов, id модели, уровень контекста, UUID диалога, флаг ваучера и короткая подпись ваучера (≤100 символов). Без email, промптов, названий чатов/проектов и токенов.
-- `ntfy_topic` — 96 случайных бит, хранится только в `%LOCALAPPDATA%\ag-widgets\config.json`.
+- `ntfy_topic` — 96 случайных бит, хранится в `secrets.json` вместе с токеном ZCode. На Windows оба значения — DPAPI-шифртекст (`dpapi:v1:`); на Android — приватные `SharedPreferences`, зашифрованные `AndroidKeyStore` AES-256-GCM (`ks:v1:`).
 - Токен ZCode хранится локально в `secrets.json` (ПК) или приватных SharedPreferences (Android).
-- На Android `allowBackup="false"`: prefs не попадают в облачный бэкап.
+- На Android `allowBackup="false"` и `dataExtractionRules`: prefs не попадают ни в облачный бэкап, ни в перенос на другое устройство.
 - Community-APK не содержит ни топика, ни токена. Personal-APK вшивает только топик из `local.properties`.
 
 ---
@@ -260,6 +279,10 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`. Для релиза с
 # Python: окна моделей, пороги, парсинг ZCode, детект изменений
 python -m unittest discover -s tests -p "test_*.py" -v
 
+# Desktop: встроенный тест-раннер Node и проверка синтаксиса (npm install не нужен)
+node --test desktop/test/*.test.js
+node desktop/scripts/check-syntax.js
+
 # Android: парсинг статуса и слияние ПК/телефон
 cd android
 .\gradlew.bat :app:testDebugUnitTest
@@ -267,6 +290,8 @@ cd android
 # Community-сборка
 .\gradlew.bat assembleDebug -Pcommunity=true
 ```
+
+GitHub Actions прогоняет все три набора на каждый push в `main` и на pull request (`.github/workflows/ci.yml`).
 
 ---
 
