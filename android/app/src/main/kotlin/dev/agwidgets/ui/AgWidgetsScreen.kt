@@ -248,8 +248,11 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
 
     fun refresh() {
         if (isRefreshing) return
-        if (topic.trim() != StatusStore.getTopic(context)) {
+        val prevTopic = StatusStore.getTopic(context)
+        if (topic.trim() != prevTopic) {
             StatusStore.setTopic(context, topic)
+            // Bucket ids from the previous topic must not fire alerts for the new one.
+            ResetAlertWorker.cancelAllResetAlerts(context)
         }
         if (zcodeToken.isNotBlank() && zcodeToken.trim() != StatusStore.getZCodeToken(context)) {
             StatusStore.setZCodeToken(context, zcodeToken)
@@ -452,9 +455,19 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                 isRefreshing = isRefreshing,
                 statusMessage = statusMessage,
                 onSave = {
-                    StatusStore.setTopic(context, topic)
+                    val prevTopic = StatusStore.getTopic(context)
+                    val nextTopic = topic.trim()
+                    StatusStore.setTopic(context, nextTopic)
+                    // Alerts scheduled for the old topic are meaningless now.
+                    if (nextTopic.isEmpty() || nextTopic != prevTopic) {
+                        ResetAlertWorker.cancelAllResetAlerts(context)
+                    }
                     syncPeriodicSchedule()
-                    statusMessage = if (topic.isBlank()) "Тема очищена" else "Тема сохранена"
+                    lastStatus = StatusStore.getMergedStatus(context)
+                    lastError = StatusStore.getLastError(context)
+                    nowMs = System.currentTimeMillis()
+                    statusMessage = if (nextTopic.isEmpty()) "Тема очищена" else "Тема сохранена"
+                    scope.launch { runCatching { LimitsWidget().updateAll(context) } }
                 },
                 onRefresh = { refresh() },
             )
