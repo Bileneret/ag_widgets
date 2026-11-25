@@ -101,7 +101,7 @@ internal fun StatusChip(text: String, color: Color) {
         Text(
             text = text,
             fontFamily = FontFamily.Monospace,
-            fontSize = 8.sp,
+            fontSize = 9.sp,
             letterSpacing = 0.8.sp,
             fontWeight = FontWeight.SemiBold,
             color = color,
@@ -125,7 +125,7 @@ internal fun RefreshButton(isRefreshing: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(48.dp)
             .clip(shape)
             .background(AgTheme.colors.card)
             .border(1.dp, AgTheme.colors.border, shape)
@@ -148,7 +148,7 @@ internal fun ThemeToggleButton(darkTheme: Boolean, onClick: () -> Unit) {
     val ag = AgTheme.colors
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(48.dp)
             .clip(shape)
             .background(ag.card)
             .border(1.dp, ag.border, shape)

@@ -63,9 +63,9 @@ internal fun DiagnosticsCard(
                     fontFamily = FontFamily.Monospace,
                     color = AgTheme.colors.muted,
                 )
-                if (rawJson == null) {
+                lastError?.takeIf { it.isNotBlank() }?.let { error ->
                     Text(
-                        text = "Последняя ошибка: ${lastError ?: "нет"}",
+                        text = "Последняя ошибка: $error",
                         style = MaterialTheme.typography.bodySmall,
                         color = AgTheme.colors.amber,
                         modifier = Modifier.padding(top = 8.dp),

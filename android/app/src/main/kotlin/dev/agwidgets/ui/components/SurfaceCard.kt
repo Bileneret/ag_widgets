@@ -21,7 +21,7 @@ internal fun SurfaceCard(onPinWidget: () -> Unit) {
             chipColor = AgTheme.colors.violet,
         )
         Text(
-            text = "Кольца 5h/неделя, обратный отсчёт, статус ZCode и контекст ПК. " +
+            text = "Шкалы 5h/неделя, обратный отсчёт, статус ZCode и контекст ПК. " +
                 "Уведомления о сбросе приходят без компьютера.",
             style = MaterialTheme.typography.bodySmall,
             color = AgTheme.colors.muted,

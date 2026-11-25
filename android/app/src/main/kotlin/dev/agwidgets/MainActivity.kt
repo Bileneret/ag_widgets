@@ -7,11 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.glance.appwidget.updateAll
 import dev.agwidgets.data.StatusStore
@@ -20,14 +18,17 @@ import dev.agwidgets.ui.AgWidgetsScreen
 import dev.agwidgets.ui.theme.AGWidgetsTheme
 import dev.agwidgets.widget.LimitsWidget
 import dev.agwidgets.work.RefreshWorker
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         Notifier.ensureChannel(this)
-        RefreshWorker.schedulePeriodic(applicationContext)
+
+        // No configured channel means no network work worth scheduling.
+        val hasChannel = StatusStore.getTopic(applicationContext).isNotBlank() ||
+            StatusStore.getZCodeToken(applicationContext).isNotBlank()
+        if (hasChannel) RefreshWorker.schedulePeriodic(applicationContext)
 
         setContent {
             val appContext = applicationContext
@@ -38,18 +39,17 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 else -> systemDark
             }
-            val themeScope = rememberCoroutineScope()
 
             LaunchedEffect(darkTheme) {
-                LimitsWidget().updateAll(appContext)
-            }
-            SideEffect {
                 val barStyle = if (darkTheme) {
                     SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
                 } else {
                     SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 }
                 enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
+            }
+            LaunchedEffect(darkTheme) {
+                LimitsWidget().updateAll(appContext)
             }
 
             AGWidgetsTheme(darkTheme = darkTheme) {
@@ -59,7 +59,6 @@ class MainActivity : ComponentActivity() {
                         val next = if (darkTheme) "light" else "dark"
                         StatusStore.setThemeMode(appContext, next)
                         themeMode = next
-                        themeScope.launch { LimitsWidget().updateAll(appContext) }
                     },
                 )
             }

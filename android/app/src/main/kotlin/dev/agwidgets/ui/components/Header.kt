@@ -27,7 +27,7 @@ internal fun Header(
     darkTheme: Boolean,
     onToggleTheme: () -> Unit,
 ) {
-    val age = statusAgeMinutes(status?.updatedAt, nowMs)
+    val age = statusAgeMinutes(status?.pcUpdatedAt ?: status?.updatedAt, nowMs)
     val (chipText, chipColor) = when {
         status == null -> "НЕТ ДАННЫХ" to AgTheme.colors.muted
         age == null -> "—" to AgTheme.colors.muted
