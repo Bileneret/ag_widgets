@@ -23,4 +23,9 @@ class LimitsWidgetReceiver : GlanceAppWidgetReceiver() {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         RefreshWorker.schedulePeriodic(context)
     }
+
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        RefreshWorker.cancelPeriodic(context)
+    }
 }
