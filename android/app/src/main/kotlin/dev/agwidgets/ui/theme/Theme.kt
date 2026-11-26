@@ -1,7 +1,9 @@
 package dev.agwidgets.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -62,16 +64,30 @@ fun resolveAgTheme(mode: String?, systemDark: Boolean): ResolvedAgTheme = when (
     )
 }
 
+/**
+ * One shape scale for every Material component, so `AlertDialog` (extraLarge),
+ * `FilterChip` (small) and `OutlinedTextField` stop inventing 28dp pills next to
+ * the 8/12dp custom surfaces.
+ */
+val AgShapes = Shapes(
+    extraSmall = RoundedCornerShape(AgDim.ChipRadius),
+    small = RoundedCornerShape(AgDim.ControlRadius),
+    medium = RoundedCornerShape(AgDim.CardRadius),
+    large = RoundedCornerShape(AgDim.PanelRadius),
+    extraLarge = RoundedCornerShape(AgDim.PanelRadius),
+)
+
+/** Every colour role the stock Material components read, filled from [AgColors]. */
 private fun materialScheme(colors: AgColors) = if (colors.isDark) {
     darkColorScheme(
         primary = colors.glow,
         onPrimary = colors.onGlow,
-        primaryContainer = colors.surface,
-        onPrimaryContainer = colors.text,
+        primaryContainer = colors.glow.copy(alpha = 0.16f),
+        onPrimaryContainer = colors.accentInk,
         secondary = colors.violet,
         onSecondary = colors.onGlow,
-        secondaryContainer = colors.surface,
-        onSecondaryContainer = colors.text,
+        secondaryContainer = colors.glow.copy(alpha = 0.16f),
+        onSecondaryContainer = colors.accentInk,
         tertiary = colors.pink,
         onTertiary = colors.onGlow,
         background = colors.background,
@@ -79,22 +95,33 @@ private fun materialScheme(colors: AgColors) = if (colors.isDark) {
         surface = colors.surface,
         onSurface = colors.text,
         surfaceVariant = colors.surface,
-        onSurfaceVariant = colors.muted,
-        outline = colors.border,
-        outlineVariant = colors.track,
+        onSurfaceVariant = colors.secondary,
+        surfaceContainerLowest = colors.background,
+        surfaceContainerLow = colors.surface,
+        surfaceContainer = colors.surface,
+        surfaceContainerHigh = colors.card,
+        surfaceContainerHighest = colors.card,
+        surfaceTint = colors.glow,
+        inverseSurface = colors.card,
+        inverseOnSurface = colors.text,
+        outline = colors.fieldBorder,
+        outlineVariant = colors.border,
         error = colors.rose,
         onError = colors.onGlow,
+        errorContainer = colors.card,
+        onErrorContainer = colors.rose,
+        scrim = colors.background,
     )
 } else {
     lightColorScheme(
         primary = colors.glow,
         onPrimary = colors.onGlow,
-        primaryContainer = colors.surface,
-        onPrimaryContainer = colors.text,
+        primaryContainer = colors.glow.copy(alpha = 0.12f),
+        onPrimaryContainer = colors.accentInk,
         secondary = colors.violet,
         onSecondary = colors.onGlow,
-        secondaryContainer = colors.surface,
-        onSecondaryContainer = colors.text,
+        secondaryContainer = colors.glow.copy(alpha = 0.12f),
+        onSecondaryContainer = colors.accentInk,
         tertiary = colors.pink,
         onTertiary = colors.onGlow,
         background = colors.background,
@@ -102,11 +129,22 @@ private fun materialScheme(colors: AgColors) = if (colors.isDark) {
         surface = colors.surface,
         onSurface = colors.text,
         surfaceVariant = colors.surface,
-        onSurfaceVariant = colors.muted,
-        outline = colors.border,
-        outlineVariant = colors.track,
+        onSurfaceVariant = colors.secondary,
+        surfaceContainerLowest = colors.card,
+        surfaceContainerLow = colors.surface,
+        surfaceContainer = colors.surface,
+        surfaceContainerHigh = colors.card,
+        surfaceContainerHighest = colors.card,
+        surfaceTint = colors.glow,
+        inverseSurface = colors.card,
+        inverseOnSurface = colors.text,
+        outline = colors.fieldBorder,
+        outlineVariant = colors.border,
         error = colors.rose,
         onError = colors.onGlow,
+        errorContainer = colors.card,
+        onErrorContainer = colors.rose,
+        scrim = colors.background,
     )
 }
 
@@ -123,6 +161,7 @@ fun AGWidgetsTheme(
         MaterialTheme(
             colorScheme = materialScheme(palette),
             typography = Typography,
+            shapes = AgShapes,
             content = content,
         )
     }
@@ -139,6 +178,7 @@ fun AGWidgetsTheme(
         MaterialTheme(
             colorScheme = materialScheme(palette),
             typography = Typography,
+            shapes = AgShapes,
             content = content,
         )
     }

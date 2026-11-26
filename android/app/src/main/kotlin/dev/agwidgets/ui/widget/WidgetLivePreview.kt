@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,18 +16,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +46,7 @@ import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.QuotaBucket
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeStatus
+import dev.agwidgets.ui.components.UiIcons
 import dev.agwidgets.ui.contextLevel
 import dev.agwidgets.ui.formatCountdownShort
 import dev.agwidgets.ui.formatK
@@ -46,21 +55,33 @@ import dev.agwidgets.ui.formatWindow
 import dev.agwidgets.ui.parseInstant
 import dev.agwidgets.ui.prettyModel
 import dev.agwidgets.ui.theme.AgColors
+import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.agColorsFor
+import dev.agwidgets.ui.theme.compositeOver
+import dev.agwidgets.widget.WidgetBlockConfig
 import dev.agwidgets.widget.WidgetBlockId
 import dev.agwidgets.widget.WidgetConfig
+import dev.agwidgets.widget.WidgetConfigCodec
 import dev.agwidgets.widget.WidgetConfigStore
 import dev.agwidgets.widget.WidgetDensity
+import dev.agwidgets.widget.WidgetPresets
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * Compose imitation of the home-screen widget drawn over a soft wallpaper.
+ * Compose imitation of the home-screen widget.
  *
- * The preview is intentionally not Glance: it lives in a normal Activity, can
- * be re-measured on every slider move and keeps the real widget contract
+ * Honest WYSIWYG: the frame is drawn from the active preset's cell size
+ * (`previewCols × previewRows`), the inner radius is clamped against the frame,
+ * and blocks that cannot fit the cell budget are **counted** in a `+N скрыто`
+ * chip instead of being silently squeezed to a sub-pixel row.
+ *
+ * The preview is intentionally not Glance: it lives in a normal Activity, can be
+ * re-measured on every slider move and keeps the real widget contract
  * (`WidgetConfig` + `WidgetConfigStore`) as its only source of truth.
  */
 @Composable
@@ -85,88 +106,267 @@ fun WidgetLivePreview(config: WidgetConfig, modifier: Modifier = Modifier) {
         WidgetDensity.COMFORTABLE -> 5.dp
         WidgetDensity.SPACIOUS -> 7.dp
     }
-    val shape = RoundedCornerShape(config.cornerRadiusDp.dp)
-    val wallpaper = Brush.linearGradient(
-        listOf(glow.copy(alpha = 0.45f), colors.background, violet.copy(alpha = 0.40f)),
-    )
+    val cells = remember(config) { previewCells(config) }
+    val frameRadius = max(16, config.cornerRadiusDp + 10)
+    // Formula innerRadius = outerRadius - padding, never larger.
+    val framePadding = 10
+    val innerRadius = config.cornerRadiusDp.coerceAtMost((frameRadius - framePadding).coerceAtLeast(0))
+    val frameShape = RoundedCornerShape(frameRadius.dp)
+    val innerShape = RoundedCornerShape(innerRadius.dp)
+    val opacity = config.opacity.coerceIn(0f, 1f)
+    // A transparent card still needs readable text in the preview.
+    val surfaceAlpha = max(opacity, 0.12f)
+    val cardColor = colors.surface.copy(alpha = surfaceAlpha)
+        .compositeOver(colors.background)
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(2f)
-            .clip(RoundedCornerShape(18.dp))
-            .background(wallpaper),
-    ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val lineColor = colors.text.copy(alpha = 0.05f)
-            val step = 22.dp.toPx()
-            var x = step
-            while (x < size.width) {
-                drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1f)
-                x += step
-            }
-            var y = step
-            while (y < size.height) {
-                drawLine(lineColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
-                y += step
-            }
-        }
-
-        Column(
+    // `BoxWithConstraints` subcomposes during measurement, so the hidden count is
+    // published through state instead of a local variable: the note under the
+    // frame is composed before the inner content is measured.
+    var hiddenBlocks by remember { mutableStateOf(0) }
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp)
-                .clip(shape)
-                .background(colors.surface.copy(alpha = config.opacity.coerceIn(0f, 1f)))
-                .border(1.dp, colors.border, shape)
-                .padding(innerPadding),
-            verticalArrangement = Arrangement.spacedBy(blockSpacing),
+                .fillMaxWidth()
+                .aspectRatio(cells.first / cells.second.toFloat())
+                // Neutral backdrop: the wallpaper is not ours to tint. The grid is
+                // the author's Classic device and appears only for that theme.
+                .clip(frameShape)
+                .background(colors.background)
+                .border(1.dp, colors.border, frameShape),
         ) {
-            config.blocks.filter { it.enabled }.forEach { block ->
-                when (block.id) {
-                    WidgetBlockId.HEADER -> PreviewHeader(colors, glow, state, scale)
-                    WidgetBlockId.CONTEXT -> PreviewContext(
-                        colors = colors,
-                        glow = glow,
-                        state = state,
+            if (colors.isClassic) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val step = 22.dp.toPx()
+                    var x = step
+                    while (x < size.width) {
+                        drawLine(colors.grid, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1f)
+                        x += step
+                    }
+                    var y = step
+                    while (y < size.height) {
+                        drawLine(colors.grid, Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+                        y += step
+                    }
+                }
+            }
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(framePadding.dp),
+            ) {
+                val budget = maxHeight - innerPadding * 2
+                val fit = remember(config, budget, scale) {
+                    fitBlocks(
+                        config = config,
+                        blocks = config.blocks.filter { it.enabled },
+                        budgetDp = budget.value,
                         scale = scale,
-                        showCompactChip = config.option(
-                            WidgetBlockId.CONTEXT,
-                            "show_compact_chip",
-                            true,
-                        ),
+                        spacingDp = blockSpacing.value,
+                        maxBlocks = previewMaxBlocks(cells.second),
                     )
-                    WidgetBlockId.QUOTAS -> PreviewQuotas(
-                        colors = colors,
-                        glow = glow,
-                        violet = violet,
-                        state = state,
-                        scale = scale,
-                        showGemini = config.option(WidgetBlockId.QUOTAS, "show_gemini", true),
-                        showThirdParty = config.option(WidgetBlockId.QUOTAS, "show_3p", true),
-                        showCountdown = config.option(WidgetBlockId.QUOTAS, "show_countdown", true),
-                    )
-                    WidgetBlockId.ZCODE -> PreviewZCode(
-                        colors = colors,
-                        violet = violet,
-                        state = state,
-                        scale = scale,
-                        showBalanceBar = config.option(
-                            WidgetBlockId.ZCODE,
-                            "show_balance_bar",
-                            true,
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(innerShape)
+                        .background(cardColor)
+                        .border(
+                            width = 1.dp,
+                            color = if (opacity < 0.15f) colors.fieldBorder else colors.border,
+                            shape = innerShape,
+                        )
+                        .padding(innerPadding),
+                    verticalArrangement = Arrangement.spacedBy(blockSpacing),
+                ) {
+                    fit.visible.forEach { block ->
+                        when (block.id) {
+                            WidgetBlockId.HEADER -> PreviewHeader(colors, glow, state, scale)
+                            WidgetBlockId.CONTEXT -> PreviewContext(
+                                colors = colors,
+                                glow = glow,
+                                state = state,
+                                scale = scale,
+                                showCompactChip = config.option(
+                                    WidgetBlockId.CONTEXT,
+                                    "show_compact_chip",
+                                    true,
+                                ),
+                            )
+                            WidgetBlockId.QUOTAS -> PreviewQuotas(
+                                colors = colors,
+                                glow = glow,
+                                violet = violet,
+                                state = state,
+                                scale = scale,
+                                showGemini = config.option(WidgetBlockId.QUOTAS, "show_gemini", true),
+                                showThirdParty = config.option(WidgetBlockId.QUOTAS, "show_3p", true),
+                                showCountdown = config.option(WidgetBlockId.QUOTAS, "show_countdown", true),
+                            )
+                            WidgetBlockId.ZCODE -> PreviewZCode(
+                                colors = colors,
+                                violet = violet,
+                                state = state,
+                                scale = scale,
+                                showBalanceBar = config.option(
+                                    WidgetBlockId.ZCODE,
+                                    "show_balance_bar",
+                                    true,
+                                ),
+                            )
+                        }
+                    }
+                }
+                LaunchedEffect(fit.hiddenCount) { hiddenBlocks = fit.hiddenCount }
+            }
+
+            if (opacity < 0.15f) {
+                // Dashed frame keeps a fully transparent widget visible as an area.
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    drawRoundRect(
+                        color = colors.fieldBorder,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(frameRadius.dp.toPx()),
+                        style = Stroke(
+                            width = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(6.dp.toPx(), 5.dp.toPx()),
+                            ),
                         ),
                     )
                 }
             }
         }
+    // The "does not fit" note lives outside the frame: an overlay badge used to
+    // cover the last visible row.
+    if (hiddenBlocks > 0) {
+        Spacer(Modifier.height(AgDim.ControlGap))
+        HiddenBadge(hidden = hiddenBlocks, colors = colors)
     }
+    }
+}
+
+/** Cells of the active preset, or a content-based estimate for a custom config. */
+private fun previewCells(config: WidgetConfig): Pair<Int, Int> {
+    val normalized = WidgetConfigCodec.normalize(config)
+    WidgetPresets.all.firstOrNull { preset ->
+        WidgetConfigCodec.normalize(preset.config) == normalized
+    }?.let { return it.previewCols to it.previewRows }
+
+    val enabled = normalized.blocks.filter { it.enabled }.map { it.id }
+    val cols = if (enabled.size == 1 && enabled.first() == WidgetBlockId.ZCODE) 2 else 4
+    val weight = enabled.sumOf { blockWeight(it) }
+    val rows = ceil(weight / 2.25).toInt()
+        .let { if (normalized.density == WidgetDensity.SPACIOUS) it + 1 else it }
+        .coerceIn(1, 4)
+    return cols to rows
+}
+
+private fun blockWeight(id: WidgetBlockId): Double = when (id) {
+    WidgetBlockId.HEADER -> 0.5
+    WidgetBlockId.CONTEXT -> 1.0
+    WidgetBlockId.ZCODE -> 1.0
+    WidgetBlockId.QUOTAS -> 2.0
+}
+
+private data class PreviewFit(val visible: List<WidgetBlockConfig>, val hiddenCount: Int)
+
+/**
+ * How many blocks a widget of [rows] cells can host: the Glance widget uses the
+ * same priority cut (`visibleBlocks`), so preview and home screen agree.
+ */
+private fun previewMaxBlocks(rows: Int): Int = when {
+    rows <= 1 -> 2
+    rows == 2 -> 3
+    else -> 4
+}
+
+/**
+ * Distributes enabled blocks over the cell budget, in the user's order.
+ *
+ * Heights are measured against the rendered atoms (header line, context pair,
+ * two quota rows, ZCode chip) times the config font scale. Whatever does not fit
+ * is counted, never compressed: a 0.7dp row is worse than an honest "+1 скрыто".
+ */
+private fun fitBlocks(
+    config: WidgetConfig,
+    blocks: List<WidgetBlockConfig>,
+    budgetDp: Float,
+    scale: Float,
+    spacingDp: Float,
+    maxBlocks: Int,
+): PreviewFit {
+    if (blocks.isEmpty()) return PreviewFit(emptyList(), 0)
+    val quotaRows = when {
+        config.option(WidgetBlockId.QUOTAS, "show_gemini", true) &&
+            config.option(WidgetBlockId.QUOTAS, "show_3p", true) -> 2
+        config.option(WidgetBlockId.QUOTAS, "show_gemini", true) ||
+            config.option(WidgetBlockId.QUOTAS, "show_3p", true) -> 1
+        else -> 0
+    }
+
+    fun heightOf(id: WidgetBlockId): Float = when (id) {
+        WidgetBlockId.HEADER -> 20f
+        WidgetBlockId.CONTEXT -> 32f
+        WidgetBlockId.ZCODE -> 26f
+        WidgetBlockId.QUOTAS -> 34f * quotaRows
+    } * scale
+
+    val visible = ArrayList<WidgetBlockConfig>(blocks.size)
+    var used = 0f
+    blocks.forEachIndexed { index, block ->
+        if (visible.size >= maxBlocks) return@forEachIndexed
+        val needed = heightOf(block.id) + if (index == 0) 0f else spacingDp
+        // Always show the first block so the preview is never an empty box; after
+        // that, stop at the first block that does not fit. Skipping a block and
+        // continuing would drop the primary one and keep a secondary.
+        if (visible.isNotEmpty() && used + needed > budgetDp) return@forEachIndexed
+        visible.add(block)
+        used += needed
+    }
+    return PreviewFit(visible, blocks.size - visible.size)
+}
+
+@Composable
+private fun HiddenBadge(hidden: Int, colors: AgColors, modifier: Modifier = Modifier) {
+    val nouns = if (hidden == 1) "блок не помещается" else "блока не помещается"
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        val shape = RoundedCornerShape(AgDim.ChipRadius)
+        Box(
+            modifier = Modifier
+                .clip(shape)
+                .background(colors.badge)
+                .border(1.dp, colors.border, shape)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text(
+                text = "+$hidden $nouns в этой сетке",
+                style = AgTypeScale.caption,
+                color = colors.secondary,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** Preview atoms stay one notch smaller than the app scale. */
+private object AgTypeScale {
+    val caption = androidx.compose.ui.text.TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Medium,
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+    )
 }
 
 @Composable
 private fun PreviewHeader(colors: AgColors, glow: Color, state: PreviewState, scale: Float) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(text = "●", fontSize = scaled(8f, scale), color = glow)
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(glow),
+        )
         Spacer(Modifier.width(4.dp))
         if (colors.isClassic) {
             Text(
@@ -197,16 +397,16 @@ private fun PreviewHeader(colors: AgColors, glow: Color, state: PreviewState, sc
         Spacer(Modifier.width(4.dp))
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(colors.track)
-                .padding(horizontal = 5.dp, vertical = 1.dp),
+                .size(16.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(colors.badge),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "⟳",
-                fontFamily = FontFamily.Monospace,
-                fontSize = scaled(8f, scale),
-                color = colors.secondary,
-                maxLines = 1,
+            Icon(
+                imageVector = UiIcons.Refresh,
+                contentDescription = null,
+                tint = colors.secondary,
+                modifier = Modifier.size(11.dp),
             )
         }
     }
@@ -223,10 +423,8 @@ private fun PreviewContext(
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "CONTEXT",
-                fontFamily = FontFamily.Monospace,
-                fontSize = scaled(7f, scale),
-                letterSpacing = 0.5.sp,
+                text = "Контекст",
+                fontSize = scaled(7.5f, scale),
                 color = colors.muted,
                 maxLines = 1,
             )
@@ -262,7 +460,7 @@ private fun PreviewContext(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .background(colors.track)
+                        .background(colors.badge)
                         .padding(horizontal = 4.dp, vertical = 1.dp),
                 ) {
                     Text(
@@ -327,16 +525,15 @@ private fun PreviewQuotaCell(
     val fraction = quota.pct?.let { (it / 100f).coerceIn(0f, 1f) }
     val valueColor = when {
         fraction == null -> colors.muted
-        fraction < 0.2f -> colors.rose
-        fraction < 0.45f -> colors.amber
+        fraction < 0.08f -> colors.rose
+        fraction < 0.15f -> colors.amber
         else -> accent
     }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = quota.label,
-                fontFamily = FontFamily.Monospace,
-                fontSize = scaled(7f, scale),
+                fontSize = scaled(7.5f, scale),
                 color = colors.muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -357,9 +554,9 @@ private fun PreviewQuotaCell(
             track = colors.track,
             height = 3.dp,
         )
-        if (showCountdown) {
+        if (showCountdown && quota.reset != null) {
             Text(
-                text = quota.reset ?: "—",
+                text = quota.reset,
                 fontFamily = FontFamily.Monospace,
                 fontSize = scaled(7f, scale),
                 color = colors.muted,
@@ -381,7 +578,7 @@ private fun PreviewZCode(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(violet.copy(alpha = if (colors.isDark) 0.20f else 0.12f))
+                .background(if (colors.isDark) violet.copy(alpha = 0.20f) else violet.copy(alpha = 0.12f))
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
             Text(
@@ -466,12 +663,12 @@ private val demoPreview = PreviewState(
     contextPct = 61,
     contextLevel = "yellow",
     gemini = listOf(
-        PreviewQuota("GEMINI 5H", 74, "2ч 40м"),
-        PreviewQuota("GEMINI WK", 82, "4д 2ч"),
+        PreviewQuota("Gemini 5 ч", 74, "2ч 40м"),
+        PreviewQuota("Gemini 7 дн", 82, "4д 2ч"),
     ),
     thirdParty = listOf(
-        PreviewQuota("CLAUDE/GPT 5H", 41, "1ч 15м"),
-        PreviewQuota("CLAUDE/GPT WK", 63, "3д 8ч"),
+        PreviewQuota("Claude / GPT 5 ч", 41, "1ч 15м"),
+        PreviewQuota("Claude / GPT 7 дн", 63, "3д 8ч"),
     ),
     zcodeLabel = "GLM 320M",
     zcodeFraction = 0.64f,
@@ -510,12 +707,12 @@ private fun buildPreviewState(status: AgStatus?): PreviewState {
         contextPct = pct?.roundToInt(),
         contextLevel = contextLevel(pct, ctx?.level, ctx?.yellowPct, ctx?.redPct),
         gemini = listOf(
-            quotaPreview("GEMINI 5H", fiveHour, now),
-            quotaPreview("GEMINI WK", weekly, now),
+            quotaPreview("Gemini 5 ч", fiveHour, now),
+            quotaPreview("Gemini 7 дн", weekly, now),
         ),
         thirdParty = listOf(
-            quotaPreview("CLAUDE/GPT 5H", thirdFiveHour, now),
-            quotaPreview("CLAUDE/GPT WK", thirdWeekly, now),
+            quotaPreview("Claude / GPT 5 ч", thirdFiveHour, now),
+            quotaPreview("Claude / GPT 7 дн", thirdWeekly, now),
         ),
         zcodeLabel = zcodeLabel(status.zcode),
         zcodeFraction = zcodeFraction(status.zcode),
@@ -527,7 +724,7 @@ private fun quotaPreview(label: String, bucket: QuotaBucket?, now: Long): Previe
     return PreviewQuota(
         label = label,
         pct = fraction?.let { (it * 100).roundToInt() },
-        reset = formatCountdownShort(bucket?.resetTime, now),
+        reset = formatCountdownShort(bucket?.resetTime, now)?.takeIf { it != "—" },
     )
 }
 
@@ -537,7 +734,7 @@ private fun zcodeLabel(zcode: ZCodeStatus?): String {
     return when {
         remaining != null && remaining > 0 ->
             "${zcode.planName.ifBlank { "ZCode" }} ${formatUnits(remaining)}"
-        zcode.isCouponVisible -> "Ваучер доступен!"
+        zcode.isCouponVisible -> "Ваучер доступен"
         else -> "ZCode"
     }
 }

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monochrome AG monogram.
+
+  Stroked, untinted (black) and free of the baked shadow/halo of the launcher
+  PNG, so `Icon(painterResource(...), tint = colors.text)` keeps the mark above
+  10:1 on every theme instead of vanishing on light paper.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M2.2,20 L7.0,4.6 L11.8,20"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M4.2,14.8 L9.8,14.8"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M22.2,12.2 L22.2,16.4 A4.3,4.3 0 0 1 17.9,20.7 A4.3,4.3 0 0 1 13.6,16.4 A4.3,4.3 0 0 1 17.9,12 A4.3,4.3 0 0 1 21.3,13.4"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

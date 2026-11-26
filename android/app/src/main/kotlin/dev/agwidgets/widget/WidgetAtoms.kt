@@ -2,9 +2,9 @@ package dev.agwidgets.widget
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
@@ -15,18 +15,22 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
-import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.semantics.contentDescription
+import androidx.glance.semantics.semantics
 import androidx.glance.text.FontFamily
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.ContextSummary
 import dev.agwidgets.data.QuotaBucket
@@ -47,113 +51,141 @@ import kotlin.math.roundToInt
  * Modular Glance atoms shared by the widget body. Every atom is a pure function
  * of the stored config and the resolved palette, so the host widget only decides
  * block order, spacing and background.
+ *
+ * Two platform limits of glance 1.2.0 shape this file:
+ *  - `Text` has no `overflow` parameter, so variable-length strings are cut at a
+ *    character boundary by [fit] instead of being clipped mid-glyph by the host;
+ *  - `GlanceModifier` has no fractional `fillMaxWidth`, so bars draw their fill
+ *    with a computed dp width instead of a stretched bitmap.
  */
 
-/** Spacing scale for the widget body: compact 10dp, comfortable 12dp, spacious 14dp. */
+/** Horizontal padding scale: compact 12dp, comfortable 16dp, spacious 20dp. */
 internal fun densityPadding(density: WidgetDensity): Int = when (density) {
-    WidgetDensity.COMPACT -> 10
-    WidgetDensity.COMFORTABLE -> 12
-    WidgetDensity.SPACIOUS -> 14
+    WidgetDensity.COMPACT -> 12
+    WidgetDensity.COMFORTABLE -> 16
+    WidgetDensity.SPACIOUS -> 20
 }
 
-/** Scales a base font size and clamps it into the readable 8sp..24sp range. */
-internal fun scaledSp(base: Float, fontScale: Float): Float =
-    (base * fontScale).coerceIn(8f, 24f)
+/**
+ * Scales a base font size with a floor of 11sp in modern themes (the contract
+ * forbids anything smaller) and 8sp in Classic, which keeps its campaign sizes.
+ */
+internal fun scaledSp(base: Float, fontScale: Float, colors: AgColors): Float =
+    (base * fontScale).coerceIn(if (colors.isClassic) 8f else 11f, 24f)
 
-/** Small intra-block spacing: compact 4dp, comfortable +2dp, spacious +4dp. */
+/** Small intra-block spacing: compact 4dp, comfortable 6dp, spacious 8dp. */
 private fun densityGap(density: WidgetDensity): Int = when (density) {
     WidgetDensity.COMPACT -> 4
     WidgetDensity.COMFORTABLE -> 6
     WidgetDensity.SPACIOUS -> 8
 }
 
-/** Shared 42x40 tap target with a 26x24 visible pill around the refresh glyph. */
+/** Radius tokens inside the widget: chips are 6dp, bars 2dp. */
+private const val CHIP_RADIUS = 6
+private const val BAR_RADIUS = 2
+
+/**
+ * Ellipsis stand-in: cuts on a character boundary and appends `…`.
+ *
+ * The Glance `Text` of this version has no `overflow`, and the host renders a
+ * clipped glyph otherwise. Budgets are deliberately generous — they only have to
+ * catch runaway values (long model ids, plan tiers, collector errors).
+ */
+internal fun fit(text: String, maxChars: Int): String =
+    if (text.length <= maxChars) text else text.take(maxChars - 1).trimEnd() + "…"
+
+/**
+ * 48×48 touch target with a 32×32 visible plate and a vector glyph.
+ *
+ * The old 42×40 box with a `⟳` text glyph was below the HIG minimum, depended on
+ * the system font and had no accessibility label.
+ */
 @Composable
-fun InlineRefreshButton(tint: ColorProvider, background: ColorProvider) {
-    // The pill alone is too small to hit reliably, so the clickable modifier
-    // lives on the larger outer box.
+fun InlineRefreshButton(colors: AgColors, fontScale: Float) {
     Box(
         modifier = GlanceModifier
             .clickable(actionRunCallback<RefreshActionCallback>())
-            .width(42.dp)
-            .height(40.dp),
+            .size(48.dp)
+            .semantics { contentDescription = "Обновить данные" },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = GlanceModifier
-                .width(26.dp)
-                .height(24.dp)
-                .background(background)
-                .cornerRadius(9.dp),
+                .size(32.dp)
+                .background(ColorProvider(colors.badge))
+                .cornerRadius(8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "⟳",
-                style = TextStyle(
-                    color = tint,
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Medium,
-                ),
-                maxLines = 1,
+            Image(
+                provider = ImageProvider(R.drawable.ic_widget_refresh),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(ColorProvider(colors.text)),
+                modifier = GlanceModifier.size(18.dp),
             )
         }
     }
 }
 
-/** Brand line, plan tier, last-update time and the always-present refresh pill. */
+/** Brand line, plan tier, freshness time and the always-present refresh plate. */
 @Composable
 fun HeaderFreshnessAtom(
     status: AgStatus?,
     config: WidgetConfig,
     colors: AgColors,
     compact: Boolean,
+    stale: Boolean,
 ) {
     val fg = ColorProvider(colors.text)
     val subtle = ColorProvider(colors.muted)
     val accent = ColorProvider(colors.glow)
-    val pill = ColorProvider(colors.track)
     // The author's `AGW / 01` code stays exclusively in Classic.
     val brand = if (colors.isClassic) "AGW / 01" else "AG Widgets"
     val time = formatTimeShort(status?.pcUpdatedAt ?: status?.updatedAt) ?: "—"
+    val headline = buildString {
+        append("Antigravity")
+        status?.planTier?.let { append(" · ").append(it) }
+        if (stale) append(" · устарело")
+    }
 
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "●",
-            style = TextStyle(color = accent, fontSize = scaledSp(9f, config.fontScale).sp),
-        )
-        Spacer(GlanceModifier.width((if (compact) 4 else 5).dp))
+        Box(
+            modifier = GlanceModifier
+                .size(6.dp)
+                .background(accent)
+                .cornerRadius(3.dp),
+        ) {}
+        Spacer(GlanceModifier.width(6.dp))
         Text(
             text = brand,
             style = TextStyle(
                 color = if (colors.isClassic) accent else subtle,
-                fontSize = scaledSp(if (compact) 8f else 9f, config.fontScale).sp,
-                fontFamily = FontFamily.Monospace,
+                fontSize = scaledSp(if (compact) 9f else 10f, config.fontScale, colors).sp,
+                fontFamily = if (colors.isClassic) FontFamily.Monospace else FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 1,
         )
-        Spacer(GlanceModifier.width((if (compact) 4 else 7).dp))
+        Spacer(GlanceModifier.width(8.dp))
         Text(
-            text = "Antigravity" + (status?.planTier?.let { " · $it" } ?: ""),
+            text = fit(headline, 28),
             style = TextStyle(
-                color = fg,
-                fontSize = scaledSp(if (compact) 10f else 12f, config.fontScale).sp,
+                color = if (stale) ColorProvider(colors.amber) else fg,
+                fontSize = scaledSp(if (compact) 11f else 12f, config.fontScale, colors).sp,
                 fontWeight = FontWeight.Bold,
             ),
             maxLines = 1,
             modifier = GlanceModifier.defaultWeight(),
         )
-        InlineRefreshButton(tint = subtle, background = pill)
+        InlineRefreshButton(colors = colors, fontScale = config.fontScale)
         Spacer(GlanceModifier.width(4.dp))
         Text(
             text = time,
             style = TextStyle(
                 color = subtle,
-                fontSize = scaledSp(9f, config.fontScale).sp,
+                fontSize = scaledSp(10f, config.fontScale, colors).sp,
                 fontFamily = FontFamily.Monospace,
             ),
             maxLines = 1,
@@ -168,9 +200,9 @@ fun ContextBarAtom(
     config: WidgetConfig,
     colors: AgColors,
     showInlineRefresh: Boolean,
+    barWidthDp: Float,
 ) {
     val subtle = ColorProvider(colors.muted)
-    val pill = ColorProvider(colors.track)
     val tokens = ctx?.tokens
     if (ctx == null || tokens == null) {
         Row(
@@ -181,17 +213,17 @@ fun ContextBarAtom(
                 text = "Контекст недоступен",
                 style = TextStyle(
                     color = ColorProvider(colors.secondary),
-                    fontSize = scaledSp(10f, config.fontScale).sp,
+                    fontSize = scaledSp(11f, config.fontScale, colors).sp,
                 ),
                 maxLines = 1,
                 modifier = GlanceModifier.defaultWeight(),
             )
-            if (showInlineRefresh) InlineRefreshButton(tint = subtle, background = pill)
+            if (showInlineRefresh) InlineRefreshButton(colors = colors, fontScale = config.fontScale)
         }
         return
     }
     val window = ctx.window
-    // NaN/Infinity must never reach the bitmap renderer or the percent label.
+    // NaN/Infinity must never reach the renderer or the percent label.
     val pct = (ctx.pct ?: window?.takeIf { it > 0 }?.let { tokens * 100.0 / it })
         ?.takeIf { it.isFinite() }
     val fraction = (pct?.div(100.0) ?: 0.0).toFloat().coerceIn(0f, 1f)
@@ -211,21 +243,21 @@ fun ContextBarAtom(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "CONTEXT",
+                text = "Контекст",
                 style = TextStyle(
                     color = subtle,
-                    fontSize = scaledSp(8f, config.fontScale).sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontSize = scaledSp(11f, config.fontScale, colors).sp,
+                    fontFamily = if (colors.isClassic) FontFamily.Monospace else FontFamily.SansSerif,
                     fontWeight = FontWeight.Medium,
                 ),
                 maxLines = 1,
             )
             Spacer(GlanceModifier.width(6.dp))
             Text(
-                text = prettyModel(ctx.model.orEmpty().ifBlank { "—" }),
+                text = fit(prettyModel(ctx.model.orEmpty().ifBlank { "—" }), 18),
                 style = TextStyle(
                     color = ColorProvider(colors.text),
-                    fontSize = scaledSp(10f, config.fontScale).sp,
+                    fontSize = scaledSp(12f, config.fontScale, colors).sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 maxLines = 1,
@@ -241,29 +273,36 @@ fun ContextBarAtom(
                 },
                 style = TextStyle(
                     color = subtle,
-                    fontSize = scaledSp(9f, config.fontScale).sp,
+                    fontSize = scaledSp(10f, config.fontScale, colors).sp,
                     fontFamily = FontFamily.Monospace,
                 ),
                 maxLines = 1,
             )
             if (showChip) {
                 Spacer(GlanceModifier.width(4.dp))
-                CompactChip(colors)
+                CompactChip(colors, config.fontScale)
             }
-            if (showInlineRefresh) InlineRefreshButton(tint = subtle, background = pill)
+            if (showInlineRefresh) InlineRefreshButton(colors = colors, fontScale = config.fontScale)
         }
         Spacer(GlanceModifier.height(4.dp))
-        BarImage(fraction, levelColor, colors.track, barHeight)
+        Bar(
+            fraction = fraction,
+            fillColor = levelColor,
+            trackColor = colors.track,
+            heightDp = barHeight,
+            widthDp = if (showChip) barWidthDp * 0.72f else barWidthDp,
+        )
     }
 }
 
-/** Gemini and CLAUDE/GPT quota pairs as a 2x2 grid (or a single row in short widgets). */
+/** Gemini and Claude/GPT quota pairs as a 2x2 grid (or a single row in short widgets). */
 @Composable
 fun QuotasAtom(
     status: AgStatus?,
     config: WidgetConfig,
     colors: AgColors,
     isCompactHeight: Boolean,
+    contentWidthDp: Float,
 ) {
     val showGemini = config.option(WidgetBlockId.QUOTAS, "show_gemini", true)
     val show3p = config.option(WidgetBlockId.QUOTAS, "show_3p", true)
@@ -272,7 +311,7 @@ fun QuotasAtom(
     if (!showGemini && !show3p) return
 
     val buckets = status?.buckets.orEmpty()
-    // Gemini slots never use 3p- buckets; CLAUDE/GPT slots use only 3p- buckets.
+    // Gemini slots never use 3p- buckets; Claude/GPT slots use only 3p- buckets.
     val geminiBuckets = buckets.filter { !it.id.startsWith("3p-") }
     val fiveHour = geminiBuckets.firstOrNull { it.id.startsWith("gemini-") && it.kind == "5h" }
         ?: geminiBuckets.firstOrNull { it.kind == "5h" }
@@ -283,54 +322,63 @@ fun QuotasAtom(
 
     val gap = densityGap(config.density)
     val now = System.currentTimeMillis()
-    val cellGap = if (isCompactHeight) 5.dp else 7.dp
+    val cellGap = if (isCompactHeight) 6.dp else 8.dp
+    val grid = showGemini && show3p && !isCompactHeight
+    // Width budget for one bar cell, so the fill never relies on stretching.
+    val cellCount = if (grid) 2 else listOf(showGemini, show3p).count { it } * 2
+    val cellWidth = ((contentWidthDp - cellGap.value * (cellCount - 1)) / cellCount)
+        .coerceAtLeast(8f)
 
-    if (showGemini && show3p && !isCompactHeight) {
+    if (grid) {
         Column(modifier = GlanceModifier.fillMaxWidth()) {
             Row(modifier = GlanceModifier.fillMaxWidth()) {
                 QuotaCell(
-                    label = "GEMINI 5H",
+                    label = "Gemini 5 ч",
                     bucket = fiveHour,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
                     accent = colors.glow,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "GEMINI WK",
+                    label = "Gemini 7 дн",
                     bucket = weekly,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
                     accent = colors.glow,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
             }
             Spacer(GlanceModifier.height(gap.dp))
             Row(modifier = GlanceModifier.fillMaxWidth()) {
                 QuotaCell(
-                    label = "CLAUDE/GPT 5H",
+                    label = "Claude / GPT 5 ч",
                     bucket = thirdFiveHour,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
-                    accent = colors.pink,
+                    accent = colors.violet,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "CLAUDE/GPT WK",
+                    label = "Claude / GPT 7 дн",
                     bucket = thirdWeekly,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
-                    accent = colors.pink,
+                    accent = colors.violet,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
             }
@@ -340,48 +388,52 @@ fun QuotasAtom(
         Row(modifier = GlanceModifier.fillMaxWidth()) {
             if (showGemini) {
                 QuotaCell(
-                    label = "GEMINI 5H",
+                    label = "Gemini 5 ч",
                     bucket = fiveHour,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
                     accent = colors.glow,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "GEMINI WK",
+                    label = "Gemini 7 дн",
                     bucket = weekly,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
                     accent = colors.glow,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
             }
             if (showGemini && show3p) Spacer(GlanceModifier.width(gap.dp))
             if (show3p) {
                 QuotaCell(
-                    label = "CLAUDE/GPT 5H",
+                    label = "Claude / GPT 5 ч",
                     bucket = thirdFiveHour,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
-                    accent = colors.pink,
+                    accent = colors.violet,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "CLAUDE/GPT WK",
+                    label = "Claude / GPT 7 дн",
                     bucket = thirdWeekly,
                     config = config,
                     colors = colors,
                     showCountdown = showCountdown,
-                    accent = colors.pink,
+                    accent = colors.violet,
                     now = now,
+                    barWidthDp = cellWidth,
                     modifier = GlanceModifier.defaultWeight(),
                 )
             }
@@ -396,10 +448,9 @@ fun ZCodeAtom(
     config: WidgetConfig,
     colors: AgColors,
     showInlineRefresh: Boolean,
+    contentWidthDp: Float,
 ) {
-    val subtle = ColorProvider(colors.muted)
-    val pill = ColorProvider(colors.track)
-    val (text, background) = zcodeChip(zcode, colors)
+    val (text, accent) = zcodeStatus(zcode, colors)
 
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         Row(
@@ -408,13 +459,13 @@ fun ZCodeAtom(
         ) {
             StatusChip(
                 text = text,
-                background = background,
-                color = ColorProvider(colors.text),
+                accent = accent,
+                colors = colors,
                 fontScale = config.fontScale,
             )
             if (showInlineRefresh) {
                 Spacer(GlanceModifier.defaultWeight())
-                InlineRefreshButton(tint = subtle, background = pill)
+                InlineRefreshButton(colors = colors, fontScale = config.fontScale)
             }
         }
         val remaining = zcode?.remainingUnits
@@ -423,42 +474,65 @@ fun ZCodeAtom(
             remaining != null && total != null && total > 0L
         ) {
             Spacer(GlanceModifier.height(densityGap(config.density).dp))
-            BarImage(
+            Bar(
                 fraction = (remaining.toFloat() / total.toFloat()).coerceIn(0f, 1f),
                 fillColor = colors.glow,
                 trackColor = colors.track,
                 heightDp = 4,
+                widthDp = contentWidthDp,
             )
         }
     }
 }
 
+/**
+ * Native bar: a track plate and a fill plate with the 2dp token radius.
+ *
+ * The fill is a dp width (`fraction × track`), not a 240×8 bitmap stretched 4.2×,
+ * so round caps stay round at any widget width. Glance 1.2 has no fractional
+ * `fillMaxWidth`, hence the computed width.
+ */
 @Composable
-private fun BarImage(fraction: Float, fillColor: Color, trackColor: Color, heightDp: Int) {
-    Image(
-        provider = ImageProvider(
-            BarRenderer.renderBar(fraction.coerceIn(0f, 1f), fillColor.toArgb(), trackColor.toArgb())
-        ),
-        contentDescription = null,
-        contentScale = ContentScale.FillBounds,
-        modifier = GlanceModifier.fillMaxWidth().height(heightDp.dp),
-    )
+private fun Bar(
+    fraction: Float,
+    fillColor: Color,
+    trackColor: Color,
+    heightDp: Int,
+    widthDp: Float,
+) {
+    val clamped = fraction.coerceIn(0f, 1f)
+    Box(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .height(heightDp.dp)
+            .background(ColorProvider(trackColor))
+            .cornerRadius(BAR_RADIUS.dp),
+    ) {
+        if (clamped > 0.01f) {
+            Box(
+                modifier = GlanceModifier
+                    .width((widthDp * clamped).dp)
+                    .fillMaxHeight()
+                    .background(ColorProvider(fillColor))
+                    .cornerRadius(BAR_RADIUS.dp),
+            ) {}
+        }
+    }
 }
 
 @Composable
-private fun CompactChip(colors: AgColors) {
-    val chipAlpha = if (colors.isDark) 0.27f else 0.14f
+private fun CompactChip(colors: AgColors, fontScale: Float) {
     Box(
         modifier = GlanceModifier
-            .background(ColorProvider(colors.rose.copy(alpha = chipAlpha)))
-            .cornerRadius(9.dp)
-            .padding(horizontal = 5.dp, vertical = 2.dp),
+            .background(ColorProvider(colors.badge))
+            .cornerRadius(CHIP_RADIUS.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
     ) {
         Text(
             text = "/compact",
             style = TextStyle(
                 color = ColorProvider(colors.rose),
-                fontSize = 8.sp,
+                fontSize = scaledSp(9f, fontScale, colors).sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
             ),
@@ -467,24 +541,36 @@ private fun CompactChip(colors: AgColors) {
     }
 }
 
+/**
+ * Neutral chip with a semantic dot: the label is always `text`, never the colour
+ * it fills with, so the backdrop cannot eat the contrast.
+ */
 @Composable
 private fun StatusChip(
     text: String,
-    background: ColorProvider,
-    color: ColorProvider,
+    accent: Color,
+    colors: AgColors,
     fontScale: Float,
 ) {
-    Box(
+    Row(
         modifier = GlanceModifier
-            .background(background)
-            .cornerRadius(12.dp)
+            .background(ColorProvider(colors.badge))
+            .cornerRadius(CHIP_RADIUS.dp)
             .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(
+            modifier = GlanceModifier
+                .size(6.dp)
+                .background(ColorProvider(accent))
+                .cornerRadius(3.dp),
+        ) {}
+        Spacer(GlanceModifier.width(5.dp))
         Text(
-            text = text,
+            text = fit(text, 26),
             style = TextStyle(
-                color = color,
-                fontSize = scaledSp(9.5f, fontScale).sp,
+                color = ColorProvider(colors.text),
+                fontSize = scaledSp(11f, fontScale, colors).sp,
                 fontWeight = FontWeight.Medium,
             ),
             maxLines = 1,
@@ -501,23 +587,18 @@ private fun QuotaCell(
     showCountdown: Boolean,
     accent: Color,
     now: Long,
+    barWidthDp: Float,
     modifier: GlanceModifier = GlanceModifier,
 ) {
     val frac = bucket?.remainingFraction?.toFloat()
         ?.takeIf { it.isFinite() }
         ?.coerceIn(0f, 1f)
     val pct = frac?.let { (it * 100).roundToInt() }
-    // Healthy buckets follow the group accent; warning tones kick in below the thresholds.
+    // Healthy buckets follow the group accent; warning tones only at the end.
     val valueColor: Color = when {
         bucket == null -> colors.muted
-        frac != null && frac < 0.2f -> colors.rose
-        frac != null && frac < 0.45f -> colors.amber
-        else -> accent
-    }
-    val barColor: Color = when {
-        bucket == null -> colors.muted
-        frac != null && frac < 0.2f -> colors.rose
-        frac != null && frac < 0.45f -> colors.amber
+        frac != null && frac < 0.08f -> colors.rose
+        frac != null && frac < 0.15f -> colors.amber
         else -> accent
     }
 
@@ -530,8 +611,7 @@ private fun QuotaCell(
                 text = label,
                 style = TextStyle(
                     color = ColorProvider(colors.muted),
-                    fontSize = scaledSp(9f, config.fontScale).sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontSize = scaledSp(11f, config.fontScale, colors).sp,
                     fontWeight = FontWeight.Medium,
                 ),
                 maxLines = 1,
@@ -541,21 +621,27 @@ private fun QuotaCell(
                 text = if (pct == null) "—" else "$pct%",
                 style = TextStyle(
                     color = ColorProvider(valueColor),
-                    fontSize = scaledSp(10f, config.fontScale).sp,
+                    fontSize = scaledSp(12f, config.fontScale, colors).sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 maxLines = 1,
             )
         }
-        Spacer(GlanceModifier.height(2.dp))
-        BarImage(frac ?: 0f, barColor, colors.track, 3)
-        if (showCountdown) {
+        Spacer(GlanceModifier.height(3.dp))
+        Bar(frac ?: 0f, valueColor, colors.track, 3, barWidthDp)
+        // A missing reset time hides the line instead of printing a lone dash.
+        val reset = if (showCountdown) {
+            formatCountdownShort(bucket?.resetTime, now)?.takeIf { it != "—" }
+        } else {
+            null
+        }
+        if (reset != null) {
             Spacer(GlanceModifier.height(2.dp))
             Text(
-                text = formatCountdownShort(bucket?.resetTime, now) ?: "—",
+                text = reset,
                 style = TextStyle(
                     color = ColorProvider(colors.muted),
-                    fontSize = scaledSp(9f, config.fontScale).sp,
+                    fontSize = scaledSp(10f, config.fontScale, colors).sp,
                     fontFamily = FontFamily.Monospace,
                 ),
                 maxLines = 1,
@@ -565,43 +651,26 @@ private fun QuotaCell(
 }
 
 /**
- * Chip backgrounds keep the original Classic alphas; modern palettes reuse their
- * semantic accent colours with the same translucency so contrast stays stable.
+ * One ZCode vocabulary for the widget: available / absent / not connected /
+ * check failed. Technical detail (HTTP codes, parser messages) never reaches the
+ * home screen; the balance case adds the plan and the remaining units.
  */
-private fun zcodeChip(z: ZCodeStatus?, colors: AgColors): Pair<String, ColorProvider> {
-    val chipAlpha = if (colors.isDark) 0.27f else 0.14f
-    val neutral = ColorProvider(colors.track)
-    val error = ColorProvider(colors.rose.copy(alpha = chipAlpha))
-    val warn = ColorProvider(colors.amber.copy(alpha = chipAlpha))
-    val coupon = ColorProvider(colors.glow.copy(alpha = if (colors.isDark) 0.40f else 0.12f))
-    val glm = ColorProvider(colors.violet.copy(alpha = if (colors.isDark) 0.20f else 0.12f))
-    if (z == null) return "ZCode: нет данных" to neutral
-    // Local copies keep the nullable checks below readable and smart-cast safe.
+private fun zcodeStatus(z: ZCodeStatus?, colors: AgColors): Pair<String, Color> {
+    if (z == null) return "ZCode: нет данных" to colors.muted
     val remaining = z.remainingUnits
     val total = z.totalUnits
     return when {
-        z.isCouponUnknown -> {
-            val text = when (z.errorKind) {
-                "network" -> "ZCode: нет связи"
-                "auth_expired" -> "ZCode: нужен вход"
-                "rate_limited" -> "ZCode: лимит 429"
-                "server_error", "api_changed", "parse_failed" -> "ZCode: ошибка проверки"
-                else -> "ZCode: неизвестно"
-            }
-            val bg = when (z.errorKind) {
-                "network", "rate_limited", "server_error", "api_changed", "parse_failed" -> error
-                else -> warn
-            }
-            text to bg
+        z.isCouponUnknown -> when (z.errorKind) {
+            "auth_expired" -> "ZCode: нужен вход" to colors.amber
+            "network" -> "ZCode: нет связи" to colors.rose
+            else -> "ZCode: ошибка проверки" to colors.rose
         }
-        z.networkError -> "ZCode: нет связи" to error
-        z.method == "api" && z.authOk == false -> "ZCode: нужен вход" to warn
-        z.method == "disabled" -> "ZCode не подключён" to neutral
-        z.isCouponVisible -> "Ваучер доступен!" to coupon
+        z.networkError -> "ZCode: нет связи" to colors.rose
+        z.method == "disabled" -> "ZCode: не подключён" to colors.muted
+        z.isCouponVisible -> "ZCode: ваучер доступен" to colors.glow
         remaining != null && (remaining > 0 || (total != null && total > 0)) ->
-            "${z.planName.ifBlank { "ZCode" }} ${formatUnits(remaining)}" to glm
-        !z.running && z.method != "api" -> "ZCode не запущен" to neutral
-        else -> "ZCode: нет ваучера" to neutral
+            "${z.planName.ifBlank { "ZCode" }} ${formatUnits(remaining)}" to colors.glow
+        else -> "ZCode: нет ваучера" to colors.muted
     }
 }
 

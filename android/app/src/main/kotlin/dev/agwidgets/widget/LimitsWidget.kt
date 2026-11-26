@@ -38,6 +38,7 @@ import dev.agwidgets.MainActivity
 import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.StatusStore
+import dev.agwidgets.ui.parseInstant
 import dev.agwidgets.ui.theme.AgColors
 import dev.agwidgets.ui.theme.ResolvedAgTheme
 import dev.agwidgets.ui.theme.agColorsFor
@@ -45,6 +46,8 @@ import dev.agwidgets.work.performRefresh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 
 class RefreshActionCallback : ActionCallback {
@@ -75,7 +78,7 @@ class RefreshActionCallback : ActionCallback {
     }
 }
 
-/** Widget height buckets used to adapt spacing and extra sections. */
+/** Widget size buckets: which blocks survive at which height. */
 internal enum class WidgetLayoutMode { COMPACT, STANDARD, EXPANDED }
 
 /**
@@ -87,6 +90,12 @@ internal fun widgetLayoutMode(heightDp: Float): WidgetLayoutMode = when {
     heightDp <= 215f -> WidgetLayoutMode.STANDARD
     else -> WidgetLayoutMode.EXPANDED
 }
+
+/** Data older than two refresh periods (30 min) is still shown, but flagged. */
+private const val STALE_AFTER_MINUTES = 30L
+
+/** Translucency floor so a 0% widget does not turn unreadable text into soup. */
+private const val MIN_SURFACE_ALPHA = 0.15f
 
 class LimitsWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -107,8 +116,8 @@ class LimitsWidget : GlanceAppWidget() {
 }
 
 /**
- * Background drawable for a resolved theme: calm flat surfaces for the modern
- * themes, the author's glass layers for `glass` and `classic`.
+ * Background art for a resolved theme: calm flat surfaces for the modern
+ * themes, the author's glass layers for `classic`.
  */
 private fun widgetBackground(resolved: ResolvedAgTheme): Int = when (resolved.id) {
     "graphite" -> R.drawable.widget_bg_graphite
@@ -120,9 +129,14 @@ private fun widgetBackground(resolved: ResolvedAgTheme): Int = when (resolved.id
 
 @Composable
 private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: WidgetConfig) {
-    val heightDp = LocalSize.current.height.value
-    val isCompactHeight = heightDp < 90f
-    val step = if (isCompactHeight) 6 else densityPadding(config.density)
+    val size = LocalSize.current
+    val heightDp = size.height.value
+    val widthDp = size.width.value
+    val mode = widgetLayoutMode(heightDp)
+    val isCompactHeight = mode == WidgetLayoutMode.COMPACT
+    val isNarrow = widthDp < 220f
+    val horizontalStep = if (isCompactHeight) 6 else densityPadding(config.density)
+    val contentWidthDp = (widthDp - 2 * horizontalStep).coerceAtLeast(24f)
 
     // Colours are always fixed ARGB values: `system` was already resolved against
     // the current night mode, so every palette is concrete by this point.
@@ -135,33 +149,72 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
     } else {
         baseColors.copy(glow = accentColor, violet = accentColor)
     }
-    // The author's original glass art is kept verbatim for Classic at default
-    // opacity/radius; every other combination is drawn as a plain rounded surface.
-    val useLegacyBackground =
-        colors.isClassic && config.opacity >= 0.9f && config.cornerRadiusDp == 10
+
+    val opacity = config.opacity.coerceIn(0f, 1f)
+    val cornerRadius = config.cornerRadiusDp.dp
+    val step = if (isCompactHeight) 6 else densityPadding(config.density)
+
+    // Classic keeps the author's glass art as the base plate; every other theme
+    // is a flat surface. Translucency is one continuous slider value in both
+    // cases — no `opacity == 0.95 && radius == 10` special case.
+    val useArtBackdrop = colors.isClassic
+    val surfaceAlpha = if (useArtBackdrop) 1f else opacity.coerceAtLeast(MIN_SURFACE_ALPHA)
 
     val rootModifier = GlanceModifier
         .fillMaxSize()
         .clickable(actionStartActivity<MainActivity>())
-    val surfaceModifier = if (useLegacyBackground) {
-        rootModifier
+    val surfaceModifier = if (useArtBackdrop) {
+        rootModifier.cornerRadius(cornerRadius)
     } else {
         rootModifier
-            .background(ColorProvider(colors.surface.copy(alpha = config.opacity)))
-            .cornerRadius(config.cornerRadiusDp.dp)
+            .background(ColorProvider(colors.surface.copy(alpha = surfaceAlpha)))
+            .cornerRadius(cornerRadius)
     }
 
-    val subtle = ColorProvider(colors.muted)
-    val track = ColorProvider(colors.track)
-
     Box(modifier = surfaceModifier) {
-        if (useLegacyBackground) {
+        if (useArtBackdrop) {
             Image(
                 provider = ImageProvider(widgetBackground(resolved)),
                 contentDescription = null,
                 contentScale = ContentScale.FillBounds,
-                modifier = GlanceModifier.fillMaxSize()
+                modifier = GlanceModifier.fillMaxSize().cornerRadius(cornerRadius)
             )
+            // Smooth veil instead of a hard cut at 90%: the glass fades into the
+            // wallpaper as the player moves the opacity slider.
+            val veil = ((1f - opacity) * 0.9f).coerceIn(0f, 0.85f)
+            if (veil > 0.02f) {
+                Box(
+                    modifier = GlanceModifier
+                        .fillMaxSize()
+                        .background(ColorProvider(colors.background.copy(alpha = veil)))
+                        .cornerRadius(cornerRadius)
+                ) {}
+            }
+        }
+
+        // Empty state: one message and one action, never a skeleton of dashes.
+        if (status == null) {
+            Box(
+                modifier = GlanceModifier.fillMaxSize().padding(12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    modifier = GlanceModifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "Нет данных — откройте AG Widgets",
+                        style = TextStyle(
+                            color = ColorProvider(colors.secondary),
+                            fontSize = scaledSp(11f, config.fontScale, colors).sp,
+                        ),
+                        maxLines = 2,
+                    )
+                    Spacer(GlanceModifier.height(8.dp))
+                    InlineRefreshButton(colors = colors, fontScale = config.fontScale)
+                }
+            }
+            return@Box
         }
 
         Column(
@@ -170,38 +223,15 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
                 .padding(
                     start = step.dp,
                     end = step.dp,
-                    top = if (isCompactHeight) step.dp else 6.dp,
+                    top = if (isCompactHeight) step.dp else 8.dp,
                     bottom = step.dp,
                 ),
             verticalAlignment = Alignment.Top
         ) {
             val headerEnabled = config.isEnabled(WidgetBlockId.HEADER)
-            val enabledBlocks = config.blocks.filter { it.enabled }
-            val inlineHost = config.firstEnabled()?.id
-
-            if (status == null) {
-                Row(
-                    modifier = GlanceModifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Нет данных · откройте приложение",
-                        style = TextStyle(
-                            color = ColorProvider(colors.secondary),
-                            fontSize = scaledSp(12f, config.fontScale).sp,
-                        ),
-                        maxLines = 1,
-                        modifier = GlanceModifier.defaultWeight(),
-                    )
-                    // With no blocks at all this row is the only place for ⟳.
-                    if (enabledBlocks.isEmpty()) {
-                        InlineRefreshButton(tint = subtle, background = track)
-                    }
-                }
-                if (enabledBlocks.isNotEmpty()) {
-                    Spacer(GlanceModifier.height(step.dp))
-                }
-            }
+            val enabledBlocks = visibleBlocks(config, mode)
+            val inlineHost = enabledBlocks.firstOrNull()?.id ?: config.firstEnabled()?.id
+            val stale = isStale(status)
 
             enabledBlocks.forEachIndexed { index, block ->
                 if (index > 0) {
@@ -216,18 +246,21 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
                         config = config,
                         colors = colors,
                         compact = isCompactHeight,
+                        stale = stale,
                     )
                     WidgetBlockId.CONTEXT -> ContextBarAtom(
-                        ctx = status?.contextSummary,
+                        ctx = status.contextSummary,
                         config = config,
                         colors = colors,
                         showInlineRefresh = showInlineRefresh,
+                        barWidthDp = contentWidthDp,
                     )
                     WidgetBlockId.ZCODE -> ZCodeAtom(
-                        zcode = status?.zcode,
+                        zcode = status.zcode,
                         config = config,
                         colors = colors,
                         showInlineRefresh = showInlineRefresh,
+                        contentWidthDp = contentWidthDp,
                     )
                     WidgetBlockId.QUOTAS -> {
                         if (showInlineRefresh) {
@@ -240,17 +273,19 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
                                         status = status,
                                         config = config,
                                         colors = colors,
-                                        isCompactHeight = isCompactHeight,
+                                        isCompactHeight = isCompactHeight || isNarrow,
+                                        contentWidthDp = contentWidthDp - 56f,
                                     )
                                 }
-                                InlineRefreshButton(tint = subtle, background = track)
+                                InlineRefreshButton(colors = colors, fontScale = config.fontScale)
                             }
                         } else {
                             QuotasAtom(
                                 status = status,
                                 config = config,
                                 colors = colors,
-                                isCompactHeight = isCompactHeight,
+                                isCompactHeight = isCompactHeight || isNarrow,
+                                contentWidthDp = contentWidthDp,
                             )
                         }
                     }
@@ -258,9 +293,44 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
             }
 
             // Every block disabled: keep the widget actionable instead of empty.
-            if (enabledBlocks.isEmpty() && status != null) {
-                InlineRefreshButton(tint = subtle, background = track)
+            if (enabledBlocks.isEmpty()) {
+                InlineRefreshButton(colors = colors, fontScale = config.fontScale)
+            }
+
+            // A failing collector is a state, not a silent blank card.
+            status.antigravityError?.takeIf { it.isNotBlank() }?.let { error ->
+                Spacer(GlanceModifier.height(step.dp))
+                Text(
+                    text = fit("Ошибка сбора: $error", 44),
+                    style = TextStyle(
+                        color = ColorProvider(colors.amber),
+                        fontSize = scaledSp(9f, config.fontScale, colors).sp,
+                    ),
+                    maxLines = 1,
+                )
             }
         }
     }
+}
+
+/**
+ * Blocks that survive the current height bucket.
+ *
+ * Compact widgets used to be clipped by the launcher; now the tail of the list
+ * is dropped by priority so what remains is laid out at full size.
+ */
+internal fun visibleBlocks(config: WidgetConfig, mode: WidgetLayoutMode): List<WidgetBlockConfig> {
+    val enabled = config.blocks.filter { it.enabled }
+    val limit = when (mode) {
+        WidgetLayoutMode.COMPACT -> 2
+        WidgetLayoutMode.STANDARD -> 3
+        WidgetLayoutMode.EXPANDED -> enabled.size
+    }
+    return enabled.take(limit.coerceAtLeast(1))
+}
+
+internal fun isStale(status: AgStatus, nowMs: Long = System.currentTimeMillis()): Boolean {
+    val instant = parseInstant(status.pcUpdatedAt ?: status.updatedAt) ?: return false
+    val minutes = Duration.between(instant, Instant.ofEpochMilli(nowMs)).toMinutes()
+    return minutes > STALE_AFTER_MINUTES
 }

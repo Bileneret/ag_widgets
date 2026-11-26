@@ -12,11 +12,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,20 +27,23 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,20 +54,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import androidx.lifecycle.lifecycleScope
+import dev.agwidgets.ui.components.AgGhostButton
+import dev.agwidgets.ui.components.AgIconButton
 import dev.agwidgets.ui.components.GlassCard
+import dev.agwidgets.ui.components.UiIcons
 import dev.agwidgets.ui.theme.AGWidgetsTheme
+import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
+import dev.agwidgets.ui.theme.AgType
 import dev.agwidgets.widget.LimitsWidget
 import dev.agwidgets.widget.WidgetBlockConfig
 import dev.agwidgets.widget.WidgetBlockId
@@ -146,62 +157,102 @@ private fun WidgetConfigScreen(
     onCancel: () -> Unit,
 ) {
     val colors = AgTheme.colors
+    val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(colors.background)
             .safeDrawingPadding(),
     ) {
         // Pinned preview: stays visible while the builder below scrolls.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .background(colors.background)
+                .padding(horizontal = AgDim.Page, vertical = AgDim.ControlGap),
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = "Настройка виджета",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = AgType.title,
                     color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = onCancel) {
-                    Text(text = "Отмена", color = colors.muted)
-                }
+                AgGhostButton(text = "Отмена", onClick = onCancel)
             }
+            Spacer(Modifier.height(AgDim.ControlGap))
             WidgetLivePreview(config = config, modifier = Modifier.fillMaxWidth())
         }
+        HorizontalDivider(thickness = 1.dp, color = colors.border)
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            PresetsSection(config = config, onChange = onChange)
-            BlocksSection(config = config, onChange = onChange)
-            StyleSection(config = config, onChange = onChange)
-            JsonSection(config = config, onChange = onChange)
-            TextButton(
-                onClick = { onChange(WidgetConfig()) },
-                modifier = Modifier.fillMaxWidth(),
+        Box(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = AgDim.Page)
+                    .padding(top = AgDim.CardGap + AgDim.Scrim, bottom = AgDim.CardGap),
+                verticalArrangement = Arrangement.spacedBy(AgDim.CardGap),
             ) {
-                Text(text = "Сбросить", color = colors.muted)
+                PresetsSection(config = config, onChange = onChange)
+                BlocksSection(config = config, onChange = onChange)
+                StyleSection(config = config, onChange = onChange)
+                JsonSection(config = config, onChange = onChange)
+                ResetAction(onReset = { onChange(WidgetConfig()) })
             }
-            Spacer(Modifier.height(4.dp))
-        }
-
-        // Pinned primary action.
-        Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 8.dp) {
+            // Soft scrim: the scrolled cards fade out instead of being cut by a
+            // hard line right under the preview.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .height(AgDim.Scrim)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(colors.background, colors.background.copy(alpha = 0f)),
+                        ),
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(AgDim.Scrim)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(colors.background.copy(alpha = 0f), colors.background),
+                        ),
+                    ),
+            )
+        }
+
+        HorizontalDivider(thickness = 1.dp, color = colors.border)
+
+        // Pinned primary action.
+        Surface(color = colors.background) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AgDim.Page, vertical = AgDim.CardGap),
             ) {
-                Button(onClick = onSave, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = if (saving) "Сохранение…" else "Сохранить виджет")
+                Button(
+                    onClick = onSave,
+                    enabled = !saving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(AgDim.CtaHeight),
+                    shape = RoundedCornerShape(AgDim.ControlRadius),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.glow,
+                        contentColor = colors.onGlow,
+                    ),
+                ) {
+                    Text(
+                        text = if (saving) "Сохранение…" else "Сохранить виджет",
+                        style = AgType.body,
+                    )
                 }
             }
         }
@@ -213,28 +264,29 @@ private fun ConfigSection(title: String, content: @Composable ColumnScope.() -> 
     GlassCard {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = AgType.section,
             color = AgTheme.colors.text,
         )
         content()
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PresetsSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) {
     ConfigSection(title = "Пресеты") {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // FlowRow instead of a clipped horizontal strip: every preset label
+        // stays whole at 320dp and at font_scale 1.3.
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
+            verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
         ) {
             WidgetPresets.all.forEach { preset ->
-                FilterChip(
+                SelectChip(
+                    label = preset.label,
                     selected = preset.config == config,
                     onClick = { onChange(preset.config) },
-                    label = { Text(text = preset.label) },
                 )
             }
         }
@@ -279,43 +331,64 @@ private fun BlockRow(
     onOption: (String, Boolean) -> Unit,
 ) {
     val colors = AgTheme.colors
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(AgDim.ControlRadius)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.surface)
             .border(1.dp, colors.border, shape)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(horizontal = AgDim.CardPadV, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 48dp row = 48dp touch target for the two arrows and the switch.
+                .heightIn(min = AgDim.MinTouch)
+                // The whole row is the switch: TalkBack always announces the
+                // block name instead of a bare "переключатель, вкл.".
+                .toggleable(
+                    value = block.enabled,
+                    role = Role.Switch,
+                    onValueChange = onToggle,
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = title,
+                style = AgType.body,
                 color = colors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            IconButton(
+            // 8dp between every pair of touch targets, never 0dp.
+            AgIconButton(
+                icon = UiIcons.ArrowUp,
+                contentDescription = "Переместить «$title» вверх",
                 onClick = onMoveUp,
                 enabled = canMoveUp,
-                modifier = Modifier.semantics {
-                    contentDescription = "Переместить «$title» вверх"
-                },
-            ) {
-                Text(text = "↑", fontSize = 16.sp, color = if (canMoveUp) colors.text else colors.muted)
-            }
-            IconButton(
+            )
+            Spacer(Modifier.width(AgDim.ControlGap))
+            AgIconButton(
+                icon = UiIcons.ArrowDown,
+                contentDescription = "Переместить «$title» вниз",
                 onClick = onMoveDown,
                 enabled = canMoveDown,
-                modifier = Modifier.semantics {
-                    contentDescription = "Переместить «$title» вниз"
-                },
-            ) {
-                Text(text = "↓", fontSize = 16.sp, color = if (canMoveDown) colors.text else colors.muted)
-            }
-            Switch(checked = block.enabled, onCheckedChange = onToggle)
+            )
+            Spacer(Modifier.width(AgDim.ControlGap))
+            Switch(
+                checked = block.enabled,
+                onCheckedChange = null,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = colors.onGlow,
+                    checkedTrackColor = colors.glow,
+                    uncheckedThumbColor = colors.secondary,
+                    uncheckedTrackColor = colors.track,
+                    uncheckedBorderColor = colors.fieldBorder,
+                ),
+            )
         }
         when (block.id) {
             WidgetBlockId.CONTEXT -> OptionRow(
@@ -346,45 +419,64 @@ private fun BlockRow(
 
 @Composable
 private fun OptionRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    val colors = AgTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = AgDim.MinTouch)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(start = AgDim.ControlGap),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
             text = label,
-            color = AgTheme.colors.secondary,
-            fontSize = 13.sp,
+            style = AgType.body,
+            color = colors.secondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Spacer(Modifier.width(AgDim.ControlGap))
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = colors.onGlow,
+                checkedTrackColor = colors.glow,
+                uncheckedThumbColor = colors.secondary,
+                uncheckedTrackColor = colors.track,
+                uncheckedBorderColor = colors.fieldBorder,
+            ),
+        )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) {
     val colors = AgTheme.colors
     val selectedTheme = WidgetThemes.normalize(config.theme)
     val selectedAccent = WidgetConfigCodec.normalizeHexAccent(config.customAccent)
     ConfigSection(title = "Стиль") {
-        Text(text = "Тема", color = colors.secondary, fontSize = 13.sp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Text(text = "Тема", style = AgType.body, color = colors.secondary)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
+            verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
         ) {
             WidgetThemes.all.forEach { theme ->
-                FilterChip(
+                SelectChip(
+                    label = themeLabel(theme),
                     selected = theme == selectedTheme,
                     onClick = { onChange(config.copy(theme = theme)) },
-                    label = { Text(text = themeLabel(theme)) },
                 )
             }
         }
-        Text(text = "Акцент", color = colors.secondary, fontSize = 13.sp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Text(text = "Акцент", style = AgType.body, color = colors.secondary)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
+            verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
         ) {
             AccentDot(
                 color = null,
@@ -406,7 +498,6 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             valueLabel = "${(config.opacity * 100).roundToInt()}%",
             value = config.opacity,
             valueRange = 0f..1f,
-            steps = 19,
             onValueChange = {
                 val snapped = WidgetConfigCodec.clampStep(
                     it.toDouble(),
@@ -422,7 +513,6 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             valueLabel = "${config.cornerRadiusDp} dp",
             value = config.cornerRadiusDp.toFloat(),
             valueRange = 0f..24f,
-            steps = 11,
             onValueChange = {
                 onChange(config.copy(cornerRadiusDp = WidgetConfigCodec.clampCornerRadius(it.toDouble())))
             },
@@ -432,7 +522,6 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             valueLabel = "${(config.fontScale * 100).roundToInt()}%",
             value = config.fontScale,
             valueRange = 0.85f..1.4f,
-            steps = 10,
             onValueChange = {
                 val snapped = WidgetConfigCodec.clampStep(
                     it.toDouble(),
@@ -443,22 +532,60 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
                 onChange(config.copy(fontScale = snapped))
             },
         )
-        Text(text = "Плотность", color = colors.secondary, fontSize = 13.sp)
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(text = "Плотность", style = AgType.body, color = colors.secondary)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
+            verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
+        ) {
             WidgetDensity.all.forEach { density ->
-                FilterChip(
+                SelectChip(
+                    label = densityLabel(density),
                     selected = config.density == density,
                     onClick = { onChange(config.copy(density = density)) },
-                    label = {
-                        Text(
-                            text = densityLabel(density),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
                 )
             }
+        }
+    }
+}
+
+/**
+ * One selection chip: selected state is a tint plus an accent border, not a
+ * 1.04:1 fill. The touch target is 48dp while the visible chip stays 36dp —
+ * `FilterChip` reported a 27.7dp clickable area on this device.
+ */
+@Composable
+private fun SelectChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = AgTheme.colors
+    val shape = RoundedCornerShape(AgDim.ControlRadius)
+    Box(
+        modifier = Modifier
+            .heightIn(min = AgDim.MinTouch)
+            .clip(shape)
+            .selectable(selected = selected, onClick = onClick, role = Role.RadioButton)
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = AgDim.ChipHeight)
+                .clip(shape)
+                .background(if (selected) colors.glow.copy(alpha = 0.16f) else colors.surface)
+                .border(
+                    width = if (selected) 1.5.dp else 1.dp,
+                    color = if (selected) colors.glow else colors.border,
+                    shape = shape,
+                )
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                style = AgType.caption,
+                color = if (selected) colors.accentInk else colors.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -468,23 +595,34 @@ private fun AccentDot(color: Color?, selected: Boolean, label: String, onClick: 
     val colors = AgTheme.colors
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(AgDim.MinTouch)
             .clip(CircleShape)
-            .background(if (selected) colors.glow.copy(alpha = 0.22f) else Color.Transparent)
-            .border(2.dp, if (selected) colors.glow else colors.border, CircleShape)
             .clickable(onClick = onClick)
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
-                .size(18.dp)
+                .size(32.dp)
                 .clip(CircleShape)
-                .background(color ?: colors.surface)
-                .border(1.dp, colors.border, CircleShape),
-        )
-        if (color == null) {
-            Text(text = "A", fontSize = 9.sp, color = colors.muted)
+                .background(if (selected) colors.glow.copy(alpha = 0.22f) else Color.Transparent)
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) colors.glow else colors.fieldBorder,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(color ?: colors.surface)
+                    .border(1.dp, colors.border, CircleShape),
+            )
+            if (color == null) {
+                Text(text = "Авто", fontSize = 7.sp, color = colors.secondary, maxLines = 1)
+            }
         }
     }
 }
@@ -495,7 +633,6 @@ private fun LabeledSlider(
     valueLabel: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
-    steps: Int,
     onValueChange: (Float) -> Unit,
 ) {
     val colors = AgTheme.colors
@@ -503,22 +640,78 @@ private fun LabeledSlider(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = title,
+                style = AgType.body,
                 color = colors.secondary,
-                fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 text = valueLabel,
+                style = AgType.body,
                 color = colors.text,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
+                maxLines = 1,
             )
         }
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
-            steps = steps,
+            // No discrete dots: the step is rounded in onValueChange, and 19
+            // white ticks used to be the loudest thing in the card.
+            steps = 0,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(AgDim.MinTouch),
+            colors = SliderDefaults.colors(
+                thumbColor = colors.glow,
+                activeTrackColor = colors.glow,
+                inactiveTrackColor = colors.track,
+                activeTickColor = Color.Transparent,
+                inactiveTickColor = Color.Transparent,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun ResetAction(onReset: () -> Unit) {
+    val colors = AgTheme.colors
+    var confirmReset by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Destructive action: never primary, visually separated from the save CTA.
+        Spacer(Modifier.height(AgDim.ControlGap))
+        AgGhostButton(
+            text = "Сбросить настройки",
+            onClick = { confirmReset = true },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            containerColor = colors.card,
+            titleContentColor = colors.text,
+            textContentColor = colors.secondary,
+            shape = RoundedCornerShape(AgDim.PanelRadius),
+            title = { Text(text = "Сбросить настройки?", style = AgType.title) },
+            text = {
+                Text(
+                    text = "Тема, плотность и включённые блоки вернутся к 4×2 дашборду. Виджет на экране не удаляется.",
+                    style = AgType.body,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    onReset()
+                }) {
+                    Text(text = "Сбросить", style = AgType.body, color = colors.rose)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) {
+                    Text(text = "Отмена", style = AgType.body, color = colors.secondary)
+                }
+            },
         )
     }
 }
@@ -526,13 +719,16 @@ private fun LabeledSlider(
 @Composable
 private fun JsonSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) {
     val context = LocalContext.current
+    val colors = AgTheme.colors
     var importOpen by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf(false) }
 
-    ConfigSection(title = "Экспорт / импорт") {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
+    ConfigSection(title = "Экспорт и импорт") {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap)) {
+            ChipButton(
+                text = "Экспорт JSON",
+                modifier = Modifier.weight(1f),
                 onClick = {
                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                     clipboard?.setPrimaryClip(
@@ -543,25 +739,25 @@ private fun JsonSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) 
                     )
                     Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
                 },
+            )
+            ChipButton(
+                text = "Импорт JSON",
                 modifier = Modifier.weight(1f),
-            ) {
-                Text(text = "Экспорт JSON", maxLines = 1)
-            }
-            OutlinedButton(
                 onClick = { importOpen = true },
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(text = "Импорт JSON", maxLines = 1)
-            }
+            )
         }
     }
 
     if (importOpen) {
         AlertDialog(
             onDismissRequest = { importOpen = false },
-            title = { Text(text = "Импорт JSON") },
+            containerColor = colors.card,
+            titleContentColor = colors.text,
+            textContentColor = colors.secondary,
+            shape = RoundedCornerShape(AgDim.PanelRadius),
+            title = { Text(text = "Импорт JSON", style = AgType.title) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap)) {
                     OutlinedTextField(
                         value = importText,
                         onValueChange = {
@@ -571,22 +767,47 @@ private fun JsonSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) 
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 120.dp),
-                        label = { Text(text = "Конфигурация") },
+                        placeholder = {
+                            Text(
+                                text = "{\"theme\": \"graphite\", \"opacity\": 0.95, …}",
+                                style = AgType.caption.copy(fontFamily = FontFamily.Monospace),
+                                color = colors.muted,
+                            )
+                        },
+                        // M3 hides the placeholder until focus: the format example
+                        // has to be visible up front, so it lives in the hint line.
+                        supportingText = {
+                            Text(
+                                text = "Например: {\"theme\": \"paper\", \"opacity\": 0.95, \"density\": \"compact\"}",
+                                style = AgType.caption.copy(fontFamily = FontFamily.Monospace),
+                                color = colors.muted,
+                            )
+                        },
+                        label = { Text("Конфигурация", style = AgType.caption) },
+                        textStyle = AgType.caption.copy(fontFamily = FontFamily.Monospace),
+                        shape = RoundedCornerShape(AgDim.ControlRadius),
                         isError = importError,
                         singleLine = false,
                         maxLines = 12,
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.glow,
+                            unfocusedBorderColor = colors.fieldBorder,
+                            focusedLabelColor = colors.accentInk,
+                            unfocusedLabelColor = colors.secondary,
+                            cursorColor = colors.glow,
+                        ),
                     )
                     if (importError) {
                         Text(
-                            text = "Некорректный JSON",
-                            color = MaterialTheme.colorScheme.error,
-                            fontSize = 12.sp,
+                            text = "Некорректный JSON — конфигурация не изменена",
+                            style = AgType.caption,
+                            color = colors.rose,
                         )
                     }
                 }
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         val imported = WidgetConfigCodec.importJson(importText)
                         if (imported == null) {
@@ -596,15 +817,44 @@ private fun JsonSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) 
                             importOpen = false
                         }
                     },
+                    shape = RoundedCornerShape(AgDim.ControlRadius),
+                    modifier = Modifier.height(AgDim.MinTouch),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.glow,
+                        contentColor = colors.onGlow,
+                    ),
                 ) {
-                    Text(text = "Применить")
+                    Text(text = "Применить", style = AgType.body)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { importOpen = false }) {
-                    Text(text = "Отмена")
+                    Text(text = "Отмена", style = AgType.body, color = colors.secondary)
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun ChipButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val colors = AgTheme.colors
+    val shape = RoundedCornerShape(AgDim.ControlRadius)
+    Box(
+        modifier = modifier
+            .heightIn(min = AgDim.MinTouch)
+            .clip(shape)
+            .border(1.dp, colors.fieldBorder, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = AgDim.ControlGap, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = AgType.body,
+            color = colors.text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -639,9 +889,9 @@ private fun themeLabel(theme: String): String = when (theme) {
 }
 
 private fun densityLabel(density: WidgetDensity): String = when (density) {
-    WidgetDensity.COMPACT -> "Компактно"
+    WidgetDensity.COMPACT -> "Компакт"
     WidgetDensity.COMFORTABLE -> "Обычно"
-    WidgetDensity.SPACIOUS -> "Просторно"
+    WidgetDensity.SPACIOUS -> "Простор"
 }
 
 private val accentChoices = listOf(

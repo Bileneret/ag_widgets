@@ -109,14 +109,27 @@ data class WidgetConfig(
     fun firstEnabled(): WidgetBlockConfig? = blocks.firstOrNull { it.enabled }
 }
 
-/** Named one-click presets; `id` is stable for shared configs and JSON. */
-data class WidgetPreset(val id: String, val label: String, val config: WidgetConfig)
+/**
+ * Named one-click presets; `id` is stable for shared configs and JSON.
+ *
+ * [previewCols]/[previewRows] exist only for the builder preview — the JSON
+ * schema is unchanged, so a shared config never carries cell sizes.
+ */
+data class WidgetPreset(
+    val id: String,
+    val label: String,
+    val config: WidgetConfig,
+    val previewCols: Int = 4,
+    val previewRows: Int = 2,
+)
 
 object WidgetPresets {
     /** 4x2 dashboard: header + quotas + context + ZCode. */
     val dashboard = WidgetPreset(
         id = "dashboard",
         label = "Дашборд 4×2",
+        previewCols = 4,
+        previewRows = 2,
         config = WidgetConfig(
             theme = WidgetThemes.SYSTEM,
             opacity = 0.95f,
@@ -135,6 +148,8 @@ object WidgetPresets {
     val classic = WidgetPreset(
         id = "classic",
         label = "Classic 4×2",
+        previewCols = 4,
+        previewRows = 2,
         config = WidgetConfig(
             theme = WidgetThemes.CLASSIC,
             opacity = 0.95f,
@@ -153,6 +168,8 @@ object WidgetPresets {
     val contextCompact = WidgetPreset(
         id = "context_compact",
         label = "Контекст 4×1",
+        previewCols = 4,
+        previewRows = 1,
         config = WidgetConfig(
             theme = WidgetThemes.SYSTEM,
             opacity = 0.95f,
@@ -171,6 +188,8 @@ object WidgetPresets {
     val detailed = WidgetPreset(
         id = "detailed",
         label = "Подробный 4×3",
+        previewCols = 4,
+        previewRows = 3,
         config = WidgetConfig(
             theme = WidgetThemes.SYSTEM,
             opacity = 0.95f,
@@ -189,6 +208,8 @@ object WidgetPresets {
     val zcodeOnly = WidgetPreset(
         id = "zcode_only",
         label = "Только ZCode 2×1",
+        previewCols = 2,
+        previewRows = 1,
         config = WidgetConfig(
             theme = WidgetThemes.SYSTEM,
             opacity = 0.95f,
