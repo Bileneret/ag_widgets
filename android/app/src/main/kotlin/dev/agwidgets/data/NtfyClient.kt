@@ -87,8 +87,13 @@ object NtfyClient {
      * are both failures.
      */
     internal fun extractLatestStatusPayload(lines: List<String>, e2eKey: String?): Result<String> {
-        val payload = lines.asReversed().firstNotNullOfOrNull { messagePayloadOrNull(it) }
-            ?: return Result.failure(IllegalStateException(ERR_NO_STATUS))
+        // Pick the newest status-shaped message (either an E2E envelope or a
+        // plaintext AgStatus), skipping unrelated/malformed events on the topic.
+        val payload = lines.asReversed().firstNotNullOfOrNull { line ->
+            messagePayloadOrNull(line)?.takeIf { candidate ->
+                E2eCrypto.isEncryptedEnvelope(candidate) || AgStatus.fromJson(candidate) != null
+            }
+        } ?: return Result.failure(IllegalStateException(ERR_NO_STATUS))
 
         if (E2eCrypto.isEncryptedEnvelope(payload)) {
             if (e2eKey == null) {
@@ -108,11 +113,7 @@ object NtfyClient {
             // are trusted, otherwise anyone could publish forged quotas.
             return Result.failure(IllegalStateException(ERR_EXPECTED_E2E))
         }
-        return if (AgStatus.fromJson(payload) != null) {
-            Result.success(payload)
-        } else {
-            Result.failure(IllegalStateException(ERR_NO_STATUS))
-        }
+        return Result.success(payload)
     }
 
     /**

@@ -98,6 +98,22 @@ class NtfyClientTest {
     }
 
     @Test
+    fun unrelatedNonStatusMessageAfterEnvelopeIsSkipped() {
+        val envelope = E2eCrypto.encryptEnvelope(statusJson, e2eKey)
+        val noise = JSONObject().apply {
+            put("id", "2")
+            put("event", "message")
+            put("message", "not a status json")
+        }.toString()
+        val lines = listOf(ndjson(envelope, "1"), noise)
+
+        val result = NtfyClient.extractLatestStatusPayload(lines, e2eKey)
+
+        assertTrue(result.isSuccess)
+        assertEquals(statusJson, result.getOrThrow())
+    }
+
+    @Test
     fun emptyLineListFailsBothOverloads() {
         val e2eResult = NtfyClient.extractLatestStatusPayload(emptyList(), e2eKey)
         assertTrue(e2eResult.isFailure)

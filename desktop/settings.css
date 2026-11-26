@@ -970,12 +970,14 @@ body {
   transition: transform 0.16s ease, background-color 0.16s ease;
 }
 
-.switch[aria-checked="true"] {
+.switch[aria-checked="true"],
+input.switch[type="checkbox"]:checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.switch[aria-checked="true"]::after {
+.switch[aria-checked="true"]::after,
+input.switch[type="checkbox"]:checked::after {
   transform: translateX(16px);
   background: var(--on-accent);
 }
@@ -1146,24 +1148,13 @@ body.is-disabled .settings-footer {
   flex: 0 0 auto;
 }
 
-/* Native checkboxes painted as the app switch. A replaced <input> does not
-   render ::after, so the knob is a background gradient, not a pseudo-element. */
+/* Native checkboxes reuse the single `.switch::after` knob above once
+   `appearance: none` removes the UA chrome (Chromium renders `::after` on
+   appearance-none inputs, so a second background-image knob would double up). */
 input.switch[type="checkbox"] {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
-  background-image: radial-gradient(circle at center, var(--text-secondary) 0 100%, transparent 100%);
-  background-repeat: no-repeat;
-  background-size: 14px 14px;
-  background-position: 2px 50%;
-  transition: background-color 0.16s ease, border-color 0.16s ease, background-position 0.16s ease;
-}
-
-input.switch[type="checkbox"]:checked {
-  background-color: var(--accent);
-  border-color: var(--accent);
-  background-image: radial-gradient(circle at center, var(--on-accent) 0 100%, transparent 100%);
-  background-position: calc(100% - 2px) 50%;
 }
 
 input.switch[type="checkbox"]:focus-visible {

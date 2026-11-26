@@ -680,12 +680,12 @@
     }
   }
 
-  function applyPairingSnapshot(snapshot) {
+  function applyPairingSnapshot(snapshot, options) {
+    const forceServerInput = Boolean(options && options.forceServerInput);
     if (!snapshot || typeof snapshot !== 'object' || snapshot.ok === false) {
       const message = snapshot && typeof snapshot.error === 'string' && snapshot.error
         ? snapshot.error
         : 'Не удалось получить состояние сопряжения.';
-      pairingLoaded = false;
       setSyncStatus(message, true);
       return false;
     }
@@ -701,7 +701,7 @@
 
     if (el.syncNtfyToggle) el.syncNtfyToggle.checked = pairing.ntfy_enabled;
     if (el.syncE2eToggle) el.syncE2eToggle.checked = pairing.e2e_enabled;
-    if (el.syncServerInput && document.activeElement !== el.syncServerInput) {
+    if (el.syncServerInput && (forceServerInput || document.activeElement !== el.syncServerInput)) {
       el.syncServerInput.value = pairing.server;
     }
     setServerError('');
@@ -724,7 +724,9 @@
         return bridge.getPairing();
       })
       .then(function (snapshot) {
-        return applyPairingSnapshot(snapshot);
+        const ok = applyPairingSnapshot(snapshot);
+        if (!ok) pairingLoaded = false;
+        return ok;
       })
       .catch(function () {
         pairingLoaded = false;
@@ -844,18 +846,19 @@
     const desired = Boolean(el.syncNtfyToggle.checked);
     const previous = pairing ? Boolean(pairing.ntfy_enabled) : !desired;
     if (pairing) pairing.ntfy_enabled = desired;
+    const revert = function (message) {
+      if (el.syncNtfyToggle) el.syncNtfyToggle.checked = previous;
+      if (pairing) pairing.ntfy_enabled = previous;
+      if (message) setSyncStatus(message, true);
+    };
     queue = queue
       .then(function () {
         return bridge.updatePairing({ ntfy_enabled: desired });
       })
       .then(function (snapshot) {
-        if (!applyPairingSnapshot(snapshot) && el.syncNtfyToggle) {
-          el.syncNtfyToggle.checked = previous;
-        }
+        if (!applyPairingSnapshot(snapshot)) revert();
       }, function () {
-        if (el.syncNtfyToggle) el.syncNtfyToggle.checked = previous;
-        if (pairing) pairing.ntfy_enabled = previous;
-        setSyncStatus('Не удалось изменить синхронизацию.', true);
+        revert('Не удалось изменить синхронизацию.');
       });
   }
 
@@ -868,39 +871,40 @@
     const desired = Boolean(el.syncE2eToggle.checked);
     const previous = pairing ? Boolean(pairing.e2e_enabled) : !desired;
     if (pairing) pairing.e2e_enabled = desired;
+    const revert = function (message) {
+      if (el.syncE2eToggle) el.syncE2eToggle.checked = previous;
+      if (pairing) pairing.e2e_enabled = previous;
+      setSyncBadge(previous);
+      updateE2eHint(previous);
+      if (message) setSyncStatus(message, true);
+    };
     queue = queue
       .then(function () {
         return bridge.updatePairing({ e2e_action: desired ? 'enable' : 'disable' });
       })
       .then(function (snapshot) {
-        if (!applyPairingSnapshot(snapshot) && el.syncE2eToggle) {
-          el.syncE2eToggle.checked = previous;
-        }
+        if (!applyPairingSnapshot(snapshot)) revert();
       }, function () {
-        if (el.syncE2eToggle) el.syncE2eToggle.checked = previous;
-        if (pairing) pairing.e2e_enabled = previous;
-        setSyncBadge(previous);
-        updateE2eHint(previous);
-        setSyncStatus('Не удалось изменить E2E-шифрование.', true);
+        revert('Не удалось изменить E2E-шифрование.');
       });
   }
 
   function handleServerSave() {
     if (!el.syncServerInput || !pairingBridgeReady()) return;
-    const value = el.syncServerInput.value;
-    if (!isValidServerUrl(value)) {
+    const raw = el.syncServerInput.value.trim();
+    const candidate = raw || 'https://ntfy.sh';
+    if (!isValidServerUrl(candidate)) {
       setServerError(SERVER_ERROR_MESSAGE);
       return;
     }
     setServerError('');
-    const trimmed = value.trim();
     queue = queue
       .then(function () {
-        return bridge.updatePairing({ ntfy_server: trimmed });
+        return bridge.updatePairing({ ntfy_server: candidate });
       })
       .then(function (snapshot) {
-        if (!applyPairingSnapshot(snapshot)) {
-          setSyncStatus('Не удалось сохранить сервер ntfy.', true);
+        if (applyPairingSnapshot(snapshot, { forceServerInput: true })) {
+          setSyncStatus('Сервер ntfy сохранён.', false);
         }
       }, function () {
         setSyncStatus('Не удалось сохранить сервер ntfy.', true);

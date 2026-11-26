@@ -649,15 +649,22 @@ internal fun AgWidgetsScreen(
                                     isRefreshing = isRefreshing,
                                     statusMessage = statusMessage,
                                     onSave = {
-                                        if (!StatusStore.setNtfyServer(context, ntfyServer)) {
+                                        val prevServer = StatusStore.getNtfyServer(context)
+                                        val serverToSave = ntfyServer.trim().ifEmpty { E2eCrypto.DEFAULT_NTFY_SERVER }
+                                        if (!StatusStore.setNtfyServer(context, serverToSave)) {
                                             statusMessage = "Сервер должен начинаться с https://"
                                         } else {
+                                            val nextServer = StatusStore.getNtfyServer(context)
+                                            ntfyServer = nextServer
                                             val prevTopic = StatusStore.getTopic(context)
                                             val nextTopic = topic.trim()
                                             StatusStore.setTopic(context, nextTopic)
-                                            // Alerts scheduled for the old topic are meaningless now.
-                                            if (nextTopic.isEmpty() || nextTopic != prevTopic) {
+                                            // Alerts scheduled for the old topic or server are meaningless now.
+                                            if (nextTopic.isEmpty() || nextTopic != prevTopic || nextServer != prevServer) {
                                                 ResetAlertWorker.cancelAllResetAlerts(context)
+                                            }
+                                            if (nextServer != prevServer && nextTopic == prevTopic && nextTopic.isNotEmpty()) {
+                                                StatusStore.clearPcCache(context)
                                             }
                                             hasE2eKey = StatusStore.hasE2eKey(context)
                                             syncPeriodicSchedule()
