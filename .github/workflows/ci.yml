@@ -57,6 +57,9 @@ jobs:
       - name: Install Android platform 37 (best effort)
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0" "platforms;android-37" > /dev/null 2>&1 || true
+      - name: Create local.properties for AGP
+        working-directory: android
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
       - name: Run Android unit tests and build both flavors
         working-directory: android
         run: |

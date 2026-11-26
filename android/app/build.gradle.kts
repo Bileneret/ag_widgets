@@ -124,7 +124,7 @@ kotlin {
 // consider the generated BuildConfig up to date and silently drop a new topic.
 tasks.matching { it.name.startsWith("generate") && it.name.endsWith("BuildConfig") }.configureEach {
   inputs.file(rootProject.layout.projectDirectory.file("local.properties"))
-    .withPropertyName("localProperties")
+    .withPropertyName("agwLocalProperties")
     .optional()
 }
 
