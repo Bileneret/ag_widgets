@@ -259,7 +259,7 @@
     },
     minibar: { preset_mode: 'minibar', density: 'compact', corner_radius: 12 },
     pill: { preset_mode: 'pill', density: 'compact', corner_radius: 20 },
-    paper: { theme: 'paper', preset_mode: 'full', corner_radius: 14, custom_accent: null },
+    paper: { theme: 'paper', preset_mode: 'full', corner_radius: 12, custom_accent: null },
     classic: {
       theme: 'classic',
       classic_variant: 'dark',
@@ -337,6 +337,28 @@
   function selectMode(mode) {
     el.modes.forEach(function (button) {
       const active = button.getAttribute('data-mode') === mode;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  /**
+   * Preset whose patch still matches the current settings. `null` keeps every
+   * tile quiet: `graphite`/`oled`/`glass` are themes, not presets (D-14).
+   */
+  function activePresetId(appearance) {
+    const mode = oneOf(appearance.preset_mode, MODES, DEFAULT_MODE);
+    const theme = oneOf(appearance.theme, THEMES, DEFAULT_THEME);
+    if (mode === 'minibar' || mode === 'pill' || mode === 'compact') return mode;
+    if (theme === 'classic') return 'classic';
+    if (theme === 'paper') return 'paper';
+    if (theme === 'system') return 'full';
+    return null;
+  }
+
+  function selectPreset(id) {
+    el.presets.forEach(function (button) {
+      const active = Boolean(id) && button.getAttribute('data-preset') === id;
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
@@ -433,8 +455,11 @@
 
     selectTheme(theme);
     selectVariant(variant);
+    selectPreset(activePresetId(appearance));
     renderAccent(appearance.custom_accent);
     setRange(el.font, el.fontBadge, fontPercent, '%');
+    // At 100% the reset button has nothing to do, so it is muted (D-14).
+    if (el.fontReset) el.fontReset.disabled = fontPercent === 100;
     setRange(el.opacity, el.opacityBadge, opacityPercent, '%');
     setRange(el.corner, el.cornerBadge, corner, 'px');
     selectDensity(density);
@@ -486,18 +511,26 @@
 
   /**
    * Readability tokens for a custom accent: the same maths the widget window
-   * uses, so the settings preview never shows a 2:1 badge (S1-018).
+   * uses, so the settings preview never shows a 2:1 badge (S1-018). The accent
+   * itself is set alongside them: a derived `--on-accent` without the matching
+   * `--accent` painted dark text on the theme's blue fill (~2.4:1, D-03).
    */
   function applyAccentTokens(theme, accent) {
     const root = document.documentElement;
     const math = window.AGW && window.AGW.themeMath ? window.AGW.themeMath : null;
     const tokens = accent && math ? math.resolveAccentTokens(accent, theme) : null;
     if (!tokens) {
+      if (root.dataset.customAccent) delete root.dataset.customAccent;
+      root.style.removeProperty('--custom-accent');
+      root.style.removeProperty('--accent');
       root.style.removeProperty('--on-accent');
       root.style.removeProperty('--accent-ink');
       root.style.removeProperty('--accent-bar');
       return;
     }
+    root.dataset.customAccent = 'true';
+    root.style.setProperty('--custom-accent', accent);
+    root.style.setProperty('--accent', accent);
     root.style.setProperty('--on-accent', tokens.onAccent);
     root.style.setProperty('--accent-ink', tokens.accentInk);
     root.style.setProperty('--accent-bar', tokens.accentBar);
@@ -704,6 +737,7 @@
     if (!el.font) return;
     const percent = snapPercent(Number(el.font.value), 85, 140, FONT_STEP_PERCENT, 100);
     setRange(el.font, el.fontBadge, percent, '%');
+    if (el.fontReset) el.fontReset.disabled = percent === 100;
     queueRangePatch({ font_scale: percent / 100 });
   }
 
@@ -933,6 +967,7 @@
     if (el.fontReset) {
       el.fontReset.addEventListener('click', guard(function () {
         setRange(el.font, el.fontBadge, 100, '%');
+        el.fontReset.disabled = true;
         applyPatch({ font_scale: 1 });
       }));
     }

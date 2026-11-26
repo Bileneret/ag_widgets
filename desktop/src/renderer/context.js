@@ -15,6 +15,36 @@
     return value === 'green' || value === 'yellow' || value === 'red' ? value : null;
   }
 
+  /** Classic themes keep the author's markup; modern ones move slots around. */
+  function isClassicTheme() {
+    const theme =
+      typeof document !== 'undefined' && document.documentElement && document.documentElement.dataset
+        ? document.documentElement.dataset.theme
+        : '';
+    return typeof theme === 'string' && theme.indexOf('classic') === 0;
+  }
+
+  /**
+   * Classic shows the level pill next to the model name in `.meta-top` (the
+   * author's 1:1 layout), modern themes show it in the card topline. One node
+   * with one id is moved between the two slots, so no markup is duplicated
+   * (D-07).
+   */
+  function placeLevelPill(pill) {
+    if (!pill) return;
+    const card = document.getElementById('context-card');
+    if (!card) return;
+    const classic = isClassicTheme();
+    const target = classic ? card.querySelector('.meta-top') : card.querySelector('.card-topline');
+    if (!target || pill.parentElement === target) return;
+    const material = document.getElementById('ctx-material');
+    if (!classic && material && material.parentElement === target) {
+      target.insertBefore(pill, material);
+      return;
+    }
+    target.appendChild(pill);
+  }
+
   function currentConversation(context, activeChat) {
     if (!context || !context.conversations) return null;
     const activeId = activeChat && activeChat.id;
@@ -312,7 +342,10 @@
       ? 'Ожидание ответа'
       : 'Нет активной сессии';
     const workspaceEl = document.getElementById('ctx-workspace');
-    workspaceEl.textContent = hasChat ? 'Выбранный чат' : '';
+    const workspaceNameEmpty = document.getElementById('ctx-workspace-name');
+    const workspacePrefixEmpty = workspaceEl ? workspaceEl.querySelector('.ws-prefix') : null;
+    if (workspaceNameEmpty) workspaceNameEmpty.textContent = hasChat ? 'Выбранный чат' : '';
+    if (workspacePrefixEmpty) workspacePrefixEmpty.classList.add('hidden');
     workspaceEl.classList.toggle('hidden', !hasChat);
     const snippetEl = document.getElementById('ctx-snippet');
     snippetEl.textContent = hasChat
@@ -326,6 +359,7 @@
     // An empty scale, a 0 % marker and a lone "—" pill read as broken data, so
     // the empty state keeps one message and one action (S1-044).
     const pill = document.getElementById('ctx-level-pill');
+    placeLevelPill(pill);
     pill.className = 'status-pill level-idle';
     pill.textContent = '—';
     pill.classList.add('hidden');
@@ -395,18 +429,29 @@
     }
 
     const { cur, window, tokens, pct, level } = info;
+    const classic = isClassicTheme();
     const material = document.getElementById('ctx-material');
     document.getElementById('ctx-tokens').textContent = formatTokens(tokens);
     // "занято" (context pressure) vs "осталось" (quota balance): one meaning per
-    // widget, spelled out instead of a bare percentage (S1-047). The compact
-    // form factor has no room for the word inside the small ring.
+    // widget, spelled out instead of a bare percentage (S1-047). Classic keeps
+    // the author's `72% из 512K`, the compact ring has no room for words.
     const compactRing = document.documentElement.dataset.mode === 'compact';
-    document.getElementById('ctx-token-sub').textContent =
-      typeof pct === 'number'
-        ? compactRing
-          ? `${Math.round(pct)}%`
-          : `${Math.round(pct)}% занято`
-        : 'окно не задано';
+    const tokenSub = document.getElementById('ctx-token-sub');
+    if (classic) {
+      tokenSub.textContent =
+        window && typeof pct === 'number'
+          ? `${Math.round(pct)}% из ${formatWindow(window)}`
+          : 'окно не задано';
+      tokenSub.title = '';
+    } else if (typeof pct === 'number') {
+      tokenSub.textContent = compactRing ? `${Math.round(pct)}%` : `${Math.round(pct)}% занято`;
+      // The modern ring cannot hold the window size next to the percentage, so
+      // `512K` stays available through the tooltip (D-07).
+      tokenSub.title = window ? `${Math.round(pct)}% из ${formatWindow(window)}` : '';
+    } else {
+      tokenSub.textContent = 'окно не задано';
+      tokenSub.title = '';
+    }
 
     const ring = document.getElementById('ring-progress');
     const satellite = document.getElementById('ring-satellite');
@@ -440,18 +485,29 @@
     model.textContent = prettyModel(cur.model);
     model.title = cur.model || '';
     const age = shortAge(cur.updated_at);
-    document.getElementById('ctx-workspace').classList.remove('hidden');
-    document.getElementById('ctx-workspace').textContent =
-      `${cur.workspace ? `Проект: ${cur.workspace}` : 'Без проекта'}${age ? ` · ${age}` : ''}`;
+    // Classic renders the freshness in the titlebar (`#updated-time`), so the
+    // project line must not repeat it (D-07). The `Проект:` prefix is its own
+    // span so a narrow window can drop it in CSS alone (D-12).
+    const workspaceEl = document.getElementById('ctx-workspace');
+    const workspaceName = document.getElementById('ctx-workspace-name');
+    const workspacePrefix = workspaceEl ? workspaceEl.querySelector('.ws-prefix') : null;
+    if (workspaceName) {
+      workspaceName.textContent = cur.workspace
+        ? `${cur.workspace}${!classic && age ? ` · ${age}` : ''}`
+        : 'Без проекта';
+    }
+    if (workspacePrefix) workspacePrefix.classList.toggle('hidden', !cur.workspace);
+    workspaceEl.classList.remove('hidden');
     const snippetEl = document.getElementById('ctx-snippet');
     const snippet = formatSnippet(cur.snippet);
     snippetEl.textContent = snippet;
     snippetEl.classList.toggle('hidden', !snippet);
 
     const pill = document.getElementById('ctx-level-pill');
+    placeLevelPill(pill);
     pill.className = `status-pill level-${level === 'unknown' ? 'idle' : level}`;
     pill.textContent =
-      level === 'red' ? 'риск' : level === 'yellow' ? 'внимание' : level === 'green' ? 'норма' : '—';
+      level === 'red' ? 'Риск' : level === 'yellow' ? 'Внимание' : level === 'green' ? 'Норма' : '—';
     pill.classList.toggle('hidden', level === 'unknown');
 
     const alert = document.getElementById('ctx-alert');

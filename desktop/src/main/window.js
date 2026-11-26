@@ -16,12 +16,26 @@ const SETTINGS_GAP = 12;
 const TITLEBAR_GRAB = 48;
 /** Debounce for persisting the window size after a user resize. */
 const RESIZE_SAVE_DELAY = 200;
+/**
+ * Window after a programmatic move during which a spurious `resize` must not
+ * reach `window-state.json` (a drag at fractional DPI used to persist +1..2px).
+ */
+const MOVE_RESIZE_GUARD_MS = 150;
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 
 let mainWindow = null;
 let settingsWindow = null;
 let moveSaveTimer = null;
 let resizeSaveTimer = null;
+/** Timestamp until which `resize` events are treated as a side effect of a move. */
+let ignoreResizeUntil = 0;
+/**
+ * Size captured for the duration of one drag. `getBounds()` comes back rounded
+ * at fractional display scale, so feeding a fresh reading into every move lets
+ * the error accumulate (+1..2px per animation frame at 125%/150%). The drag
+ * therefore reuses the size it started with (D-01).
+ */
+let dragSize = null;
 /** Form factor currently applied to the widget; null until the first apply. */
 let currentMode = null;
 
@@ -137,6 +151,8 @@ function scheduleResizeSave() {
 function saveCurrentWindowBounds() {
   clearPendingMoveSave();
   clearPendingResizeSave();
+  // The drag is over: the next one captures the size that is live by then.
+  dragSize = null;
   saveWindowState();
 }
 
@@ -170,9 +186,11 @@ function clampToWorkArea(x, y, width, height) {
         y + height > area.y + 40 &&
         y < area.y + area.height - 40,
     ) || primary;
+  // Integer screen coordinates only: fractional DIP positions saved to
+  // `window-state.json` are re-rounded by Electron on restore.
   return {
-    x: Math.max(target.x, Math.min(x, target.x + target.width - width)),
-    y: Math.max(target.y, Math.min(y, target.y + target.height - height)),
+    x: Math.round(Math.max(target.x, Math.min(x, target.x + target.width - width))),
+    y: Math.round(Math.max(target.y, Math.min(y, target.y + target.height - height))),
   };
 }
 
@@ -284,11 +302,19 @@ function createWindow() {
   };
   mainWindow.on('resize', () => {
     enforceFormFactor();
+    if (Date.now() < ignoreResizeUntil) return;
+    // A real user resize (or a form-factor change) makes the cached drag size
+    // stale, so the next drag re-reads it once.
+    dragSize = null;
     scheduleResizeSave();
   });
   // `resized` fires once the user lets go of the frame; both paths share the
   // same 200 ms debounce so only the final size reaches the disk.
-  mainWindow.on('resized', scheduleResizeSave);
+  mainWindow.on('resized', () => {
+    if (Date.now() < ignoreResizeUntil) return;
+    dragSize = null;
+    scheduleResizeSave();
+  });
   mainWindow.on('maximize', () => mainWindow.unmaximize());
   mainWindow.on('enter-full-screen', () => mainWindow.setFullScreen(false));
 
@@ -476,6 +502,8 @@ function applyFormFactor(presetMode) {
   );
   const bounds = window.getBounds();
   window.setSize(target.width, target.height, false);
+  // The form factor owns the size now; a drag must re-read it.
+  dragSize = null;
   const position = clampToWorkArea(bounds.x, bounds.y, target.width, target.height);
   if (position.x !== bounds.x || position.y !== bounds.y) {
     window.setPosition(position.x, position.y, false);
@@ -552,13 +580,14 @@ function moveWindow(dx, dy) {
   const window = getWindow();
   if (!window) return;
   const bounds = window.getBounds();
-  // Drag the window at its current size: `minibar`/`pill` must not grow back to
-  // the `full` layout while being moved.
+  // Freeze the size for the whole drag. `minibar`/`pill` must not grow back to
+  // the `full` layout while being moved, and a fresh `getBounds()` reading on
+  // every tick is exactly what let the fractional-DPI rounding accumulate: at
+  // 125%/150% each frame added 1-2px to both dimensions (electron#10862).
+  if (!dragSize) dragSize = { width: bounds.width, height: bounds.height };
   const next = {
     x: Math.round(bounds.x + dx),
     y: Math.round(bounds.y + dy),
-    width: bounds.width,
-    height: bounds.height,
   };
 
   // Clamp against the union of every display's work area instead of snapping to
@@ -572,13 +601,20 @@ function moveWindow(dx, dy) {
 
   // Keep TITLEBAR_GRAB pixels of the title bar visible horizontally and the
   // whole title strip below the desktop top edge; on displays shorter than the
-  // window the top edge is never pushed off screen.
-  next.x = Math.max(
-    left - bounds.width + TITLEBAR_GRAB,
-    Math.min(next.x, right - TITLEBAR_GRAB),
+  // window the top edge is never pushed off screen. The frozen size is used
+  // here too, so the clamp matches what the OS is about to be told.
+  next.x = Math.round(
+    Math.max(left - dragSize.width + TITLEBAR_GRAB, Math.min(next.x, right - TITLEBAR_GRAB)),
   );
-  next.y = Math.max(top, Math.min(next.y, bottom - TITLEBAR_GRAB));
-  window.setBounds(next, false);
+  next.y = Math.round(Math.max(top, Math.min(next.y, bottom - TITLEBAR_GRAB)));
+
+  // The cached size (not a fresh reading) is the only width/height the OS sees.
+  // A stray `resize` from the move is kept out of the saved state by the guard.
+  ignoreResizeUntil = Date.now() + MOVE_RESIZE_GUARD_MS;
+  window.setBounds(
+    { x: next.x, y: next.y, width: dragSize.width, height: dragSize.height },
+    false,
+  );
 }
 
 module.exports = {

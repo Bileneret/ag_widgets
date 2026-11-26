@@ -180,7 +180,7 @@ const BUILT_IN_PRESETS = Object.freeze({
     patch: Object.freeze({
       theme: 'paper',
       preset_mode: 'full',
-      corner_radius: 14,
+      corner_radius: 12,
       custom_accent: null,
     }),
   }),
@@ -227,8 +227,8 @@ const WINDOW_BACKGROUNDS = {
   graphite: '#121417',
   paper: '#F2F1EC',
   oled: '#000000',
-  'glass-dark': '#0E1117',
-  'glass-light': '#ECECE6',
+  'glass-dark': '#0B1220',
+  'glass-light': '#E4EAF2',
   'classic-dark': '#0a0e13',
   'classic-light': '#fbfbfa',
 };

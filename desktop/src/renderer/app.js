@@ -613,7 +613,7 @@
 
       AGW.zcode.setLogin(
         'success',
-        result.refreshed ? 'Вход выполнен · обновляю баланс…' : 'Токен сохранён · нажмите ⟳ для обновления',
+        result.refreshed ? 'Вход выполнен · обновляю баланс…' : 'Токен сохранён · нажмите «Обновить»',
       );
       AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
 
