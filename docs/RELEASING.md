@@ -108,9 +108,9 @@ and include both SHA-256 values.
 
 ## Personal build (not for publication)
 
-A personal APK embeds your own `ntfy_topic` from the runtime config. Build it
-locally only, keep it outside the repository, and never attach it to a public
-release:
+A personal APK embeds your own `ntfy_topic` from the encrypted runtime secrets
+(`python collector/collector.py --show-topic`). Build it locally only, keep it
+outside the repository, and never attach it to a public release:
 
 1. Add `agw.topic=<topic>` to `android/local.properties`.
 2. Run `.\gradlew.bat :app:assembleFullRelease --no-configuration-cache`
