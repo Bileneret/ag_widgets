@@ -71,7 +71,11 @@
     };
   }
 
-  function render(status) {
+  function render(status, options = {}) {
+    const opts = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    const showGemini = opts.show_gemini !== false;
+    const showThirdParty = opts.show_3p !== false;
+    const showCountdown = opts.show_countdown !== false;
     const tier = document.getElementById('plan-tier');
     const list = document.getElementById('quota-list');
     const extra = document.getElementById('quota-extra');
@@ -94,7 +98,15 @@
 
     if (!list) return;
 
-    if (!antigravity || !Array.isArray(antigravity.buckets) || antigravity.buckets.length === 0) {
+    const allBuckets =
+      antigravity && Array.isArray(antigravity.buckets) ? antigravity.buckets : [];
+    // Gemini buckets carry no `3p-` prefix; Claude/GPT buckets do.
+    const buckets = allBuckets.filter((bucket) => {
+      const id = String((bucket && bucket.id) || '').toLowerCase();
+      return id.startsWith('3p-') ? showThirdParty : showGemini;
+    });
+
+    if (buckets.length === 0) {
       if (extra) {
         extra.textContent = '';
         extra.title = '';
@@ -110,7 +122,7 @@
     }
 
     const order = { '5h': 0, weekly: 1, other: 2 };
-    const sorted = [...antigravity.buckets].sort((a, b) => {
+    const sorted = buckets.slice().sort((a, b) => {
       const byPriority = bucketPriority(a) - bucketPriority(b);
       if (byPriority !== 0) return byPriority;
       const aGemini = String(a.id || '').startsWith('gemini-') ? 0 : 1;
@@ -157,7 +169,7 @@
 
       const reset = document.createElement('span');
       reset.className = 'quota-reset';
-      reset.textContent = formatCountdown(bucket.reset_time) || '—';
+      if (showCountdown) reset.textContent = formatCountdown(bucket.reset_time) || '—';
       const percentEl = document.createElement('b');
       percentEl.textContent = ` ${view.percentText}`;
       reset.appendChild(percentEl);

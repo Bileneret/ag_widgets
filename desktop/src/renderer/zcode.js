@@ -85,7 +85,9 @@
     return { hasBalance, hasTotal, percent, text };
   }
 
-  function render(status) {
+  function render(status, options = {}) {
+    const opts = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    const showBalanceBar = opts.show_balance_bar !== false;
     const title = document.getElementById('zcode-title');
     const material = document.getElementById('zcode-material');
     const subtitle = document.getElementById('zcode-sub');
@@ -182,7 +184,7 @@
     const endsDate = formatEndDate(zcode.ends_at);
     const endsText = endsDate ? ` · до ${endsDate}` : '';
 
-    if (bar && barFill && balance.percent !== null) {
+    if (bar && barFill && showBalanceBar && balance.percent !== null) {
       bar.classList.remove('hidden');
       barFill.style.width = `${balance.percent}%`;
     }

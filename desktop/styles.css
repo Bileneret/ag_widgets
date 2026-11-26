@@ -8,6 +8,8 @@
 
 :root {
   --font-scale: 1;
+  --card-radius: 12px;
+  --custom-accent: none;
   --bg: #0a0e13;
   --surface: #09090b;
   --card: rgba(12, 10, 16, 0.9);
@@ -1258,8 +1260,8 @@ html[data-dark="false"] .icon-sun,
 }
 
 :root:not([data-theme^="classic"]) .card {
-  border-radius: 12px;
-  border-bottom-right-radius: 12px;
+  border-radius: var(--card-radius);
+  border-bottom-right-radius: var(--card-radius);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
@@ -1377,6 +1379,231 @@ html[data-dark="false"] .icon-sun,
   width: 20px;
   height: 20px;
   border-radius: 6px;
+}
+
+/* ── Widget builder: accent, radius, density, form factors ──
+   The renderer writes --card-radius, --custom-accent and the
+   data-density / data-mode attributes on <html>. Classic keeps its
+   author decoration in `full` (the rules above win for its radius). */
+
+/* A custom accent set by the renderer re-points the theme accent. The
+   renderer also inlines --accent/--glow/--glow-rgb so the rgb-triple
+   surfaces pick the new colour up. */
+html[data-custom-accent="true"] {
+  --accent: var(--custom-accent);
+  --glow: var(--custom-accent);
+}
+
+/* Compact strip: a one-line summary shown in the minibar/pill modes. */
+.compact-strip {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  height: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: grab;
+  touch-action: none;
+}
+
+.compact-strip:active {
+  cursor: grabbing;
+}
+
+.compact-strip.hidden {
+  display: none !important;
+}
+
+.strip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+
+#compact-strip[data-ctx-level="green"] .strip-dot {
+  background: var(--ok);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--ok) 70%, transparent);
+}
+
+#compact-strip[data-ctx-level="yellow"] .strip-dot {
+  background: var(--warn);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--warn) 70%, transparent);
+}
+
+#compact-strip[data-ctx-level="red"] .strip-dot {
+  background: var(--risk);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--risk) 70%, transparent);
+}
+
+#compact-strip[data-ctx-level="unknown"] .strip-dot {
+  background: var(--text-muted);
+  box-shadow: none;
+}
+
+.strip-text {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-quota,
+.strip-zcode {
+  color: var(--text-muted);
+}
+
+.strip-btn {
+  flex-shrink: 0;
+}
+
+/* Density: only rhythm and padding, never decoration. */
+html[data-density="compact"] .cards-stack {
+  gap: 8px;
+}
+
+html[data-density="compact"] .card {
+  padding: 9px 11px 10px;
+}
+
+html[data-density="spacious"] .cards-stack {
+  gap: 15px;
+}
+
+html[data-density="spacious"] .card {
+  padding: 15px 16px 16px;
+}
+
+/* Full: scrollable card rail with a thin, quiet scrollbar. */
+html[data-mode="full"] #widget-cards {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--card-border) transparent;
+}
+
+html[data-mode="full"] #widget-cards::-webkit-scrollbar {
+  display: block;
+  width: 4px;
+}
+
+html[data-mode="full"] #widget-cards::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 999px;
+}
+
+html[data-mode="full"] #widget-cards::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Compact: a dense card, secondary chrome hidden, no oversized gauge. */
+html[data-mode="compact"] .widget-shell {
+  padding: 10px 12px 12px;
+  gap: 8px;
+}
+
+html[data-mode="compact"] .widget-footer,
+html[data-mode="compact"] .card-heading,
+html[data-mode="compact"] .serial,
+html[data-mode="compact"] .meta-snippet,
+html[data-mode="compact"] #ctx-workspace {
+  display: none;
+}
+
+html[data-mode="compact"] #widget-cards {
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+html[data-mode="compact"] .card {
+  padding: 8px 10px 9px;
+  min-height: 0;
+}
+
+html[data-mode="compact"] .orbital-gauge,
+html[data-mode="compact"] .gauge-svg {
+  width: 96px;
+  height: 96px;
+  max-width: 96px;
+}
+
+/* Minibar: just the strip, pinned to the window edges. */
+html[data-mode="minibar"] .widget-shell,
+html[data-mode="pill"] .widget-shell {
+  padding: 0;
+  gap: 0;
+}
+
+html[data-mode="minibar"] .titlebar,
+html[data-mode="minibar"] #widget-cards,
+html[data-mode="minibar"] .widget-footer {
+  display: none;
+}
+
+html[data-mode="minibar"] #compact-strip {
+  display: flex;
+  height: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+  padding: 0 10px;
+  gap: 10px;
+}
+
+html[data-mode="minibar"] .strip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Pill: context only, settings button reveals on hover/focus. */
+html[data-mode="pill"] .titlebar,
+html[data-mode="pill"] #widget-cards,
+html[data-mode="pill"] .widget-footer {
+  display: none;
+}
+
+html[data-mode="pill"] #compact-strip {
+  display: flex;
+  height: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 10px;
+  gap: 10px;
+}
+
+html[data-mode="pill"] #strip-quota,
+html[data-mode="pill"] #strip-zcode {
+  display: none;
+}
+
+html[data-mode="pill"] .strip-text {
+  white-space: nowrap;
+  font-size: 12px;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+html[data-mode="pill"] #strip-settings-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+html[data-mode="pill"] #compact-strip:hover #strip-settings-btn,
+html[data-mode="pill"] #compact-strip:focus-within #strip-settings-btn {
+  opacity: 1;
 }
 
 /* ── Motion preferences ────────────────────────────────── */

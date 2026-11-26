@@ -32,6 +32,33 @@
     return typeof snippet === 'string' ? snippet.trim() : '';
   }
 
+  /** Normalized block options; missing/invalid fields use the author defaults. */
+  function normalizeOptions(options) {
+    const source = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
+    let recentCount = 3;
+    const rawCount = source.recent_count;
+    if (rawCount !== null && rawCount !== undefined && rawCount !== '') {
+      const numeric = typeof rawCount === 'number' ? rawCount : Number(rawCount);
+      if (Number.isFinite(numeric)) recentCount = Math.max(0, Math.min(5, Math.round(numeric)));
+    }
+    return {
+      showRecent: source.show_recent !== false,
+      recentCount,
+      showThresholds: source.show_thresholds !== false,
+    };
+  }
+
+  /** Colour token for a context level, shared with the compact strip. */
+  function levelColor(level) {
+    return level === 'red'
+      ? 'var(--risk)'
+      : level === 'yellow'
+        ? 'var(--warn)'
+        : level === 'green'
+          ? 'var(--ok)'
+          : 'var(--glow)';
+  }
+
   /** Model label for a recent chat; a missing model is "", never "undefined". */
   function recentModelLabel(item) {
     const raw = item && typeof item.model === 'string' ? item.model.trim() : '';
@@ -262,7 +289,13 @@
     if (risk) risk.textContent = known ? `${red}%+` : '—';
   }
 
-  function renderEmpty(info) {
+  /** Show/hide the whole health-zone block (track + legend). */
+  function setZoneVisible(visible) {
+    const zone = document.querySelector('.zone');
+    if (zone) zone.classList.toggle('hidden', !visible);
+  }
+
+  function renderEmpty(info, options) {
     const hasChat = Boolean(info.activeChat && info.activeChat.id);
     const chatTitle = info.activeChat && info.activeChat.title ? info.activeChat.title : '';
     document.getElementById('ctx-tokens').textContent = '—';
@@ -296,16 +329,19 @@
     recent.innerHTML = '';
     recent.classList.add('hidden');
 
-    renderZone(info);
-    renderLegend(info);
+    if (options.showThresholds) {
+      renderZone(info);
+      renderLegend(info);
+    }
+    setZoneVisible(options.showThresholds);
   }
 
-  function renderRecent(info, chatTitles) {
+  function renderRecent(info, chatTitles, limit) {
     const container = document.getElementById('ctx-recent');
     const others = Object.entries(info.conversations || {})
       .filter(([id]) => id !== info.selectedId)
       .sort((a, b) => String(b[1].updated_at || '').localeCompare(String(a[1].updated_at || '')))
-      .slice(0, 2);
+      .slice(0, Math.max(0, limit));
 
     container.innerHTML = '';
     if (others.length === 0) {
@@ -336,10 +372,11 @@
     }
   }
 
-  function render(context, status, activeChat, chatTitles = {}) {
+  function render(context, status, activeChat, chatTitles = {}, options = {}) {
+    const opts = normalizeOptions(options);
     const info = contextInfo(context, status, activeChat);
     if (!info.cur) {
-      renderEmpty(info);
+      renderEmpty(info, opts);
       return;
     }
 
@@ -362,10 +399,9 @@
           : 0.015;
     ring.style.strokeDashoffset = (CIRCUMFERENCE * (1 - ratio)).toFixed(2);
 
-    const levelColor =
-      level === 'red' ? 'var(--risk)' : level === 'yellow' ? 'var(--warn)' : level === 'green' ? 'var(--ok)' : 'var(--glow)';
-    ring.style.stroke = levelColor;
-    satellite.style.fill = levelColor;
+    const levelStroke = levelColor(level);
+    ring.style.stroke = levelStroke;
+    satellite.style.fill = levelStroke;
     const angle = -Math.PI / 2 + Math.PI * 2 * ratio;
     satellite.setAttribute('cx', (70 + 48 * Math.cos(angle)).toFixed(2));
     satellite.setAttribute('cy', (70 + 48 * Math.sin(angle)).toFixed(2));
@@ -395,7 +431,9 @@
       level === 'red' ? 'РИСК' : level === 'yellow' ? 'ВНИМАНИЕ' : level === 'green' ? 'OK' : '—';
 
     const alert = document.getElementById('ctx-alert');
-    if (level === 'red') {
+    if (!opts.showThresholds) {
+      alert.classList.add('hidden');
+    } else if (level === 'red') {
       alert.className = 'ctx-alert';
       alert.textContent = 'Пора /compact · зона деградации';
       alert.classList.remove('hidden');
@@ -407,9 +445,19 @@
       alert.classList.add('hidden');
     }
 
-    renderZone(info);
-    renderLegend(info);
-    renderRecent(info, chatTitles);
+    setZoneVisible(opts.showThresholds);
+    if (opts.showThresholds) {
+      renderZone(info);
+      renderLegend(info);
+    }
+
+    if (opts.showRecent) {
+      renderRecent(info, chatTitles, opts.recentCount);
+    } else {
+      const recent = document.getElementById('ctx-recent');
+      recent.innerHTML = '';
+      recent.classList.add('hidden');
+    }
   }
 
   AGW.context = {
@@ -418,6 +466,7 @@
     render,
     formatSnippet,
     formatRecentChat,
+    levelColor,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

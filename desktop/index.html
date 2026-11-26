@@ -47,9 +47,9 @@
       </div>
     </header>
 
-    <div class="cards-stack">
+    <main id="widget-cards" class="cards-stack">
       <!-- 01 / Context -->
-      <section class="card context-card" id="context-card" aria-live="polite">
+      <section class="card context-card" id="context-card" data-block="context_hero" aria-live="polite">
         <div class="card-topline">
           <span class="serial">01 / CONTEXT</span>
           <span class="card-heading">Контекст</span>
@@ -105,7 +105,7 @@
       </section>
 
       <!-- 02 / Quotas -->
-      <section class="card quota-card" aria-live="polite">
+      <section class="card quota-card" data-block="quotas_grid" aria-live="polite">
         <div class="card-topline">
           <span class="serial">02 / LIMITS</span>
           <span class="card-heading">Лимиты</span>
@@ -119,7 +119,7 @@
       </section>
 
       <!-- 03 / ZCode -->
-      <section class="card zcode-card" id="zcode-card" aria-live="polite">
+      <section class="card zcode-card" id="zcode-card" data-block="zcode_card" aria-live="polite">
         <div class="card-topline">
           <span class="serial">03 / ACCESS</span>
           <span class="card-heading">ZCode</span>
@@ -137,6 +137,15 @@
           <button id="zcode-login" class="zcode-action" type="button">ВОЙТИ В Z.AI</button>
         </div>
       </section>
+    </main>
+
+    <div id="compact-strip" class="compact-strip hidden" role="group" aria-label="Краткая сводка">
+      <span id="strip-level-dot" class="strip-dot" aria-hidden="true"></span>
+      <span id="strip-ctx" class="strip-text">—</span>
+      <span id="strip-quota" class="strip-text strip-quota">—</span>
+      <span id="strip-zcode" class="strip-text strip-zcode">—</span>
+      <button id="strip-refresh-btn" class="icon-btn strip-btn" type="button" title="Обновить данные" aria-label="Обновить данные">⟳</button>
+      <button id="strip-settings-btn" class="icon-btn strip-btn" type="button" title="Настройки" aria-label="Настройки">⚙</button>
     </div>
 
     <footer class="widget-footer" aria-hidden="true">
