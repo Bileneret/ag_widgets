@@ -18,4 +18,6 @@ object ZCodeStore {
 
     fun saveDirect(context: Context, status: ZCodeStatus): Pair<ZCodeStatus?, ZCodeStatus> =
         null to status
+
+    fun nextSeq(context: Context): Int = 0
 }

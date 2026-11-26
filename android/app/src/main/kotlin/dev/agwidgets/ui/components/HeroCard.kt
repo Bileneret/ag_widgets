@@ -36,10 +36,13 @@ import androidx.compose.ui.unit.sp
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.ContextSummary
 import dev.agwidgets.data.QuotaBucket
+import dev.agwidgets.ui.contextLevel
 import dev.agwidgets.ui.formatCountdownShort
 import dev.agwidgets.ui.formatK
+import dev.agwidgets.ui.formatWindow
 import dev.agwidgets.ui.prettyModel
 import dev.agwidgets.ui.theme.AgTheme
+import dev.agwidgets.ui.updatedLabel
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -53,12 +56,15 @@ internal fun HeroCard(
     onRefresh: () -> Unit,
 ) {
     val buckets = status?.buckets.orEmpty()
-    val fiveHour = buckets.firstOrNull { it.id.startsWith("gemini-") && it.kind == "5h" }
-        ?: buckets.firstOrNull { it.kind == "5h" }
-    val weekly = buckets.firstOrNull { it.id.startsWith("gemini-") && it.kind == "weekly" }
-        ?: buckets.firstOrNull { it.kind == "weekly" }
-    val thirdFiveHour = buckets.firstOrNull { it.id.startsWith("3p-") && it.kind == "5h" }
-    val thirdWeekly = buckets.firstOrNull { it.id.startsWith("3p-") && it.kind == "weekly" }
+    // 3p-* belongs to CLAUDE/GPT only; never duplicate it in the GEMINI slots.
+    val geminiBuckets = buckets.filterNot { it.id.startsWith("3p-") }
+    val fiveHour = geminiBuckets.firstOrNull { it.id.startsWith("gemini-") && it.kind == "5h" }
+        ?: geminiBuckets.firstOrNull { it.kind == "5h" }
+    val weekly = geminiBuckets.firstOrNull { it.id.startsWith("gemini-") && it.kind == "weekly" }
+        ?: geminiBuckets.firstOrNull { it.kind == "weekly" }
+    val thirdBuckets = buckets.filter { it.id.startsWith("3p-") }
+    val thirdFiveHour = thirdBuckets.firstOrNull { it.kind == "5h" }
+    val thirdWeekly = thirdBuckets.firstOrNull { it.kind == "weekly" }
 
     GlassCard {
         Row(
@@ -74,7 +80,7 @@ internal fun HeroCard(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = status?.updatedAt?.let { dev.agwidgets.ui.updatedLabel(it, nowMs) } ?: "—",
+                text = status?.let { updatedLabel(it.pcUpdatedAt ?: it.updatedAt, nowMs) } ?: "—",
                 fontFamily = FontFamily.Monospace,
                 fontSize = 8.sp,
                 color = AgTheme.colors.muted,
@@ -121,14 +127,17 @@ private fun QuotaRing(
     accent: Color = AgTheme.colors.glow,
     modifier: Modifier = Modifier,
 ) {
-    val target = (bucket?.remainingFraction ?: 0.0).toFloat().coerceIn(0f, 1f)
+    // A missing or non-finite fraction must render as "—", never as 0% or NaN.
+    val fraction = bucket?.remainingFraction?.takeIf { it.isFinite() }
+    val known = fraction != null
+    val target = fraction?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
     val animated by animateFloatAsState(
         targetValue = target,
         animationSpec = tween(durationMillis = 700),
         label = "quota",
     )
     val color = when {
-        bucket == null -> AgTheme.colors.muted
+        !known -> AgTheme.colors.muted
         target < 0.2f -> AgTheme.colors.rose
         target < 0.45f -> AgTheme.colors.amber
         else -> accent
@@ -162,7 +171,7 @@ private fun QuotaRing(
                     strokeWidth = 1f,
                 )
                 drawCircle(color = ag.track, radius = radius, style = Stroke(width = stroke))
-                if (animated > 0.004f) {
+                if (known && animated > 0.004f) {
                     drawArc(
                         color = color,
                         startAngle = -90f,
@@ -183,8 +192,8 @@ private fun QuotaRing(
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = if (bucket == null) "—" else "${(target * 100).roundToInt()}%",
-                    color = AgTheme.colors.text,
+                    text = if (known) "${(target * 100).roundToInt()}%" else "—",
+                    color = if (known) AgTheme.colors.text else AgTheme.colors.muted,
                     fontSize = 21.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.4).sp,
@@ -199,7 +208,7 @@ private fun QuotaRing(
                 Text(
                     text = formatCountdownShort(bucket?.resetTime, nowMs) ?: "нет данных",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 7.sp,
+                    fontSize = 9.sp,
                     color = AgTheme.colors.muted.copy(alpha = 0.75f),
                 )
             }
@@ -216,18 +225,17 @@ private fun ContextHealth(context: ContextSummary?) {
     } else {
         null
     }
-    val level = context?.level ?: when {
-        pct == null -> null
-        pct >= 65 -> "red"
-        pct >= 40 -> "yellow"
-        else -> "green"
-    }
+    val level = contextLevel(pct, context?.level, context?.yellowPct, context?.redPct)
     val color = when (level) {
         "red" -> AgTheme.colors.rose
         "yellow" -> AgTheme.colors.amber
         "green" -> AgTheme.colors.green
         else -> AgTheme.colors.muted
     }
+    val yellowPct = context?.yellowPct ?: 40.0
+    val redPct = context?.redPct ?: 65.0
+    val warnTokens = context?.warnTokens
+    val riskTokens = context?.riskTokens
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -251,7 +259,7 @@ private fun ContextHealth(context: ContextSummary?) {
                     text = when {
                         tokens != null && window != null && pct != null ->
                             "${if (context.active) "ТЕКУЩИЙ ЧАТ · " else ""}" +
-                                "${formatK(tokens)} / ${formatK(window)} · ${pct.roundToInt()}%"
+                                "${formatK(tokens)} / ${formatWindow(window)} · ${pct.roundToInt()}%"
                         tokens != null ->
                             "${if (context.active) "ТЕКУЩИЙ ЧАТ · " else ""}${formatK(tokens)}"
                         context?.active == true -> "ТЕКУЩИЙ ЧАТ · ожидание ответа"
@@ -279,24 +287,24 @@ private fun ContextHealth(context: ContextSummary?) {
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth((pct / 100.0).toFloat().coerceIn(0.01f, 1f))
+                        .fillMaxWidth((pct / 100.0).toFloat().coerceIn(0f, 1f))
                         .height(2.dp)
                         .background(color),
                 )
             }
-            if (context?.warnTokens != null && context.riskTokens != null) {
+            if (warnTokens != null && riskTokens != null) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
-                        text = "НАДЁЖНО ДО ${formatK(context.warnTokens)}",
+                        text = "НАДЁЖНО ДО ${formatK(warnTokens)} · ${yellowPct.roundToInt()}%",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 7.sp,
+                        fontSize = 9.sp,
                         letterSpacing = 0.5.sp,
                         color = AgTheme.colors.muted.copy(alpha = 0.7f),
                     )
                     Text(
-                        text = "РИСК ПОСЛЕ ${formatK(context.riskTokens)}",
+                        text = "РИСК ПОСЛЕ ${formatK(riskTokens)} · ${redPct.roundToInt()}%",
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 7.sp,
+                        fontSize = 9.sp,
                         letterSpacing = 0.5.sp,
                         color = AgTheme.colors.muted.copy(alpha = 0.7f),
                     )

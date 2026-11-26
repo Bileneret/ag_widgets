@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,13 +36,16 @@ internal fun AccessCard(
     isPending: Boolean,
     message: String,
     onLogin: () -> Unit,
-    onLogout: () -> Unit,
+    onCancelLogin: () -> Unit,
+    onSaveToken: () -> Unit,
+    onClearToken: () -> Unit,
 ) {
     val (chipText, chipColor) = zcodeChip(zcode)
+    val planSuffix = zcode?.planName?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""
     GlassCard {
         SectionHeader(
             serial = "03 / ACCESS",
-            title = "ZCode · GLM 5.3",
+            title = "ZCode$planSuffix",
             chipText = chipText,
             chipColor = chipColor,
         )
@@ -50,9 +55,22 @@ internal fun AccessCard(
             style = MaterialTheme.typography.bodySmall,
             color = AgTheme.colors.muted,
         )
-        if (zcode?.remainingUnits != null && zcode.remainingUnits > 0) {
+        if (zcode?.remainingUnits != null) {
             BalanceBar(zcode)
         }
+        OutlinedTextField(
+            value = token,
+            onValueChange = onTokenChange,
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Password,
+            ),
+            label = { Text("Или вставьте JWT-токен вручную") },
+            colors = glassFieldColors(AgTheme.colors.violet),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = onLogin,
@@ -66,26 +84,37 @@ internal fun AccessCard(
             ) {
                 Text(if (isPending) "Ожидание…" else "Войти в Z.ai")
             }
-
-            if (token.isNotBlank()) {
+            if (isPending) {
                 OutlinedButton(
-                    onClick = onLogout,
+                    onClick = onCancelLogin,
+                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AgTheme.colors.rose),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AgTheme.colors.text),
                 ) {
-                    Text("Выйти")
+                    Text("Отмена")
                 }
             }
         }
-        OutlinedTextField(
-            value = token,
-            onValueChange = onTokenChange,
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            label = { Text("Или вставьте JWT-токен вручную") },
-            colors = glassFieldColors(AgTheme.colors.violet),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onSaveToken,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AgTheme.colors.text),
+            ) {
+                Text("Сохранить")
+            }
+            if (token.isNotBlank()) {
+                OutlinedButton(
+                    onClick = onClearToken,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AgTheme.colors.rose),
+                ) {
+                    Text("Очистить")
+                }
+            }
+        }
         Text(message, style = MaterialTheme.typography.bodySmall, color = AgTheme.colors.secondary)
     }
 }
@@ -99,7 +128,7 @@ private fun BalanceBar(zcode: ZCodeStatus) {
             Text(
                 text = "ОСТАТОК ${formatUnits(remaining)}${total?.let { " / ${formatUnits(it)}" } ?: ""}",
                 fontFamily = FontFamily.Monospace,
-                fontSize = 8.sp,
+                fontSize = 9.sp,
                 letterSpacing = 0.5.sp,
                 color = AgTheme.colors.text,
             )
@@ -107,7 +136,7 @@ private fun BalanceBar(zcode: ZCodeStatus) {
                 Text(
                     text = "ДО ${formatDateShort(it)}",
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 7.sp,
+                    fontSize = 9.sp,
                     color = AgTheme.colors.muted,
                 )
             }
@@ -121,7 +150,7 @@ private fun BalanceBar(zcode: ZCodeStatus) {
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth((remaining.toDouble() / total).toFloat().coerceIn(0.01f, 1f))
+                        .fillMaxWidth((remaining.toDouble() / total).toFloat().coerceIn(0f, 1f))
                         .height(2.dp)
                         .background(AgTheme.colors.glow),
                 )
@@ -131,12 +160,21 @@ private fun BalanceBar(zcode: ZCodeStatus) {
 }
 
 @Composable
-private fun zcodeChip(zcode: ZCodeStatus?): Pair<String, Color> = when {
-    zcode == null -> "НЕТ ДАННЫХ" to AgTheme.colors.muted
-    zcode.networkError -> "НЕТ СВЯЗИ" to AgTheme.colors.rose
-    zcode.method == "api" && zcode.authOk == false -> "НУЖЕН ВХОД" to AgTheme.colors.amber
-    zcode.method == "disabled" -> "НЕ ПОДКЛЮЧЁН" to AgTheme.colors.muted
-    zcode.couponVisible -> "ВАУЧЕР" to AgTheme.colors.glow
-    zcode.running -> "АКТИВЕН" to AgTheme.colors.green
-    else -> "НЕ ЗАПУЩЕН" to AgTheme.colors.muted
+private fun zcodeChip(zcode: ZCodeStatus?): Pair<String, Color> {
+    if (zcode == null) return "НЕТ ДАННЫХ" to AgTheme.colors.muted
+    if (zcode.isCouponUnknown) {
+        return when (zcode.errorKind) {
+            "auth_expired" -> "НУЖЕН ВХОД" to AgTheme.colors.amber
+            "rate_limited" -> "ЛИМИТ 429" to AgTheme.colors.amber
+            "network" -> "НЕТ СВЯЗИ" to AgTheme.colors.rose
+            "server_error", "api_changed", "parse_failed" -> "ОШИБКА ПРОВЕРКИ" to AgTheme.colors.rose
+            else -> "НЕИЗВЕСТНО" to AgTheme.colors.muted
+        }
+    }
+    if (zcode.networkError) return "НЕТ СВЯЗИ" to AgTheme.colors.rose
+    if (zcode.authOk == false) return "НУЖЕН ВХОД" to AgTheme.colors.amber
+    if (zcode.method == "disabled") return "НЕ ПОДКЛЮЧЁН" to AgTheme.colors.muted
+    if (zcode.isCouponVisible || zcode.couponVisible) return "ВАУЧЕР" to AgTheme.colors.glow
+    if (zcode.running) return "АКТИВЕН" to AgTheme.colors.green
+    return "НЕ ЗАПУЩЕН" to AgTheme.colors.muted
 }

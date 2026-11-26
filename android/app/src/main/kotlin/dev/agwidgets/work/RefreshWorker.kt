@@ -16,9 +16,11 @@ import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.NtfyClient
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeClient
+import dev.agwidgets.data.ZCodeStatus
 import dev.agwidgets.data.ZCodeStore
 import dev.agwidgets.notify.Notifier
 import dev.agwidgets.widget.LimitsWidget
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class RefreshWorker(
@@ -59,11 +61,40 @@ class RefreshWorker(
             val zcodeToken = ZCodeStore.getToken(applicationContext)
             if (zcodeToken.isNotBlank()) {
                 val deviceMid = ZCodeStore.getOrCreateDeviceMid(applicationContext)
-                val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid)
+                val seq = ZCodeStore.nextSeq(applicationContext)
+                val previous = ZCodeStore.getDirect(applicationContext)
+                val zRes = ZCodeClient.fetchStatus(zcodeToken, deviceMid, seq, previous)
                 zRes.onSuccess { zStatus ->
                     val (prevZ, currZ) = ZCodeStore.saveDirect(applicationContext, zStatus)
                     Notifier.checkZCodeCouponTransition(applicationContext, prevZ, currZ)
-                }.onFailure {
+                    if (zStatus.networkError || zStatus.errorKind != null) {
+                        val reason = when (zStatus.errorKind) {
+                            "auth_expired" -> "ZCode: токен истёк"
+                            "rate_limited" -> "ZCode: лимит запросов (429)"
+                            "server_error" -> "ZCode: ошибка сервера"
+                            "api_changed" -> "ZCode: схема API изменилась"
+                            "parse_failed" -> "ZCode: не удалось разобрать ответ"
+                            else -> "ZCode: нет связи"
+                        }
+                        StatusStore.saveError(applicationContext, reason)
+                        if (zStatus.networkError || zStatus.errorKind in RETRYABLE_ZCODE_ERRORS) {
+                            anyNetworkFailure = true
+                        }
+                    }
+                }.onFailure { err ->
+                    val fallback = previous ?: ZCodeStatus(running = true, couponVisible = false, method = "api")
+                    val failed = fallback.copy(
+                        running = true,
+                        method = "api",
+                        authOk = null,
+                        networkError = true,
+                        couponVisible = false,
+                        couponState = ZCodeStatus.COUPON_UNKNOWN,
+                        errorKind = "network",
+                        checkedAt = Instant.now().toString(),
+                    )
+                    ZCodeStore.saveDirect(applicationContext, failed)
+                    StatusStore.saveError(applicationContext, err.message ?: "Ошибка сети ZCode")
                     anyNetworkFailure = true
                 }
             }
@@ -76,6 +107,7 @@ class RefreshWorker(
     companion object {
         private const val PERIODIC_WORK_NAME = "agw_periodic_refresh"
         private const val IMMEDIATE_WORK_NAME = "agw_immediate_refresh"
+        private val RETRYABLE_ZCODE_ERRORS = setOf("network", "rate_limited", "server_error")
 
         fun schedulePeriodic(context: Context) {
             val constraints = Constraints.Builder()
@@ -103,6 +135,11 @@ class RefreshWorker(
                 ExistingWorkPolicy.REPLACE,
                 req
             )
+        }
+
+        fun cancelPeriodic(context: Context) {
+            WorkManager.getInstance(context.applicationContext)
+                .cancelUniqueWork(PERIODIC_WORK_NAME)
         }
     }
 }

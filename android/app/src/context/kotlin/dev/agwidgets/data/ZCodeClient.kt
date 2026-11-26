@@ -13,6 +13,11 @@ object ZCodeClient {
     suspend fun pollOAuthFlow(flow: ZCodeOAuthFlow): ZCodeOAuthPollResult =
         ZCodeOAuthPollResult.Failed(UNAVAILABLE)
 
-    suspend fun fetchStatus(token: String, deviceMid: String): Result<ZCodeStatus> =
+    suspend fun fetchStatus(
+        token: String,
+        deviceMid: String,
+        seq: Int = 0,
+        previous: ZCodeStatus? = null,
+    ): Result<ZCodeStatus> =
         Result.failure(UnsupportedOperationException(UNAVAILABLE))
 }

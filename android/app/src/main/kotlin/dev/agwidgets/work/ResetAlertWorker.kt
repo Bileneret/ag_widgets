@@ -10,10 +10,10 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.agwidgets.data.QuotaBucket
 import dev.agwidgets.notify.Notifier
+import dev.agwidgets.ui.parseInstant
 import dev.agwidgets.widget.LimitsWidget
 import java.time.Duration
 import java.time.Instant
-import java.time.OffsetDateTime
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,19 +40,31 @@ class ResetAlertWorker(
         private const val KEY_KIND = "kind"
         private const val KEY_RESET_TIME = "reset_time"
 
+        private val KNOWN_BUCKET_IDS = listOf("gemini-5h", "gemini-weekly", "3p-5h", "3p-weekly")
+
         fun scheduleForBuckets(context: Context, buckets: List<QuotaBucket>) {
             val wm = WorkManager.getInstance(context.applicationContext)
             val now = Instant.now()
+            val presentIds = buckets.map { it.id }
 
             for (bucket in buckets) {
-                val resetIso = bucket.resetTime ?: continue
+                val resetIso = bucket.resetTime
                 // Only schedule an alert if quota was actually consumed (< 99%)
                 val frac = bucket.remainingFraction
-                if (frac != null && frac >= 0.99) continue
+                val target = resetIso?.let { parseInstant(it) }
+                if (resetIso == null || target == null || target.epochSecond <= 0L ||
+                    (frac != null && frac >= 0.99)
+                ) {
+                    // Never leave a stale alert scheduled for a bucket we cannot trust.
+                    wm.cancelUniqueWork("agw_reset_${bucket.id}")
+                    continue
+                }
 
-                val target = parseInstant(resetIso) ?: continue
                 val delayMs = Duration.between(now, target).toMillis()
-                if (delayMs <= 5_000L) continue
+                if (delayMs <= 5_000L) {
+                    wm.cancelUniqueWork("agw_reset_${bucket.id}")
+                    continue
+                }
 
                 val data = Data.Builder()
                     .putString(KEY_BUCKET_ID, bucket.id)
@@ -71,16 +83,11 @@ class ResetAlertWorker(
                     req
                 )
             }
-        }
 
-        private fun parseInstant(iso: String): Instant? {
-            return try {
-                OffsetDateTime.parse(iso).toInstant()
-            } catch (_: Exception) {
-                try {
-                    Instant.parse(iso)
-                } catch (_: Exception) {
-                    null
+            // Cancel alerts for known buckets that disappeared from the report.
+            for (id in KNOWN_BUCKET_IDS) {
+                if (id !in presentIds) {
+                    wm.cancelUniqueWork("agw_reset_$id")
                 }
             }
         }

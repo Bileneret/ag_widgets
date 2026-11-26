@@ -16,7 +16,9 @@ internal fun AccessCard(
     isPending: Boolean,
     message: String,
     onLogin: () -> Unit,
-    onLogout: () -> Unit,
+    onCancelLogin: () -> Unit,
+    onSaveToken: () -> Unit,
+    onClearToken: () -> Unit,
 ) {
     // Intentionally empty.
 }
