@@ -7,19 +7,23 @@ const { readAllState, readJson, writeJsonAtomic } = require('./storage');
 const { logError } = require('./logger');
 const appearance = require('./appearance');
 
-const WINDOW_WIDTH = 400;
-const WINDOW_HEIGHT = 640;
-const SETTINGS_WIDTH = 390;
-const SETTINGS_HEIGHT = 540;
+/** Settings window: two tabs fit without a horizontal scrollbar. */
+const SETTINGS_WIDTH = 430;
+const SETTINGS_HEIGHT = 620;
 /** Gap between the widget and the Settings window. */
 const SETTINGS_GAP = 12;
 /** Minimum slice of the title bar that must stay on screen while dragging. */
 const TITLEBAR_GRAB = 48;
+/** Debounce for persisting the window size after a user resize. */
+const RESIZE_SAVE_DELAY = 200;
 const ASSETS_DIR = path.join(__dirname, '..', '..', 'assets');
 
 let mainWindow = null;
 let settingsWindow = null;
 let moveSaveTimer = null;
+let resizeSaveTimer = null;
+/** Form factor currently applied to the widget; null until the first apply. */
+let currentMode = null;
 
 /** Windows dark mode flag; never throws outside Electron. */
 function systemPrefersDark() {
@@ -39,13 +43,46 @@ function currentAppearance() {
   };
 }
 
+/** Clamp a desired size into the form factor limits of `mode`. */
+function clampSizeToMode(mode, width, height) {
+  const limits = appearance.formFactorBounds(mode);
+  const toPx = (value, fallback) =>
+    Number.isFinite(value) ? Math.round(value) : Math.round(fallback);
+  return {
+    width: Math.min(limits.maxWidth, Math.max(limits.minWidth, toPx(width, limits.width))),
+    height: Math.min(limits.maxHeight, Math.max(limits.minHeight, toPx(height, limits.height))),
+  };
+}
+
+/** Per-mode window sizes from `window-state.json`, revalidated on every read. */
+function normalizeModeBounds(raw) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const result = {};
+  for (const mode of appearance.PRESET_MODES) {
+    const saved = source[mode] && typeof source[mode] === 'object' ? source[mode] : {};
+    result[mode] = clampSizeToMode(mode, saved.width, saved.height);
+  }
+  return result;
+}
+
+/** Form factor currently applied to the widget; disk value before the first apply. */
+function activeMode() {
+  if (currentMode) return currentMode;
+  try {
+    return currentAppearance().settings.preset_mode;
+  } catch {
+    return appearance.DEFAULT_APPEARANCE.preset_mode;
+  }
+}
+
 function loadWindowState() {
   const saved = readJson(windowStatePath());
-  if (!saved) return { x: undefined, y: undefined, alwaysOnTop: true };
+  const source = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
   return {
-    x: typeof saved.x === 'number' ? saved.x : undefined,
-    y: typeof saved.y === 'number' ? saved.y : undefined,
-    alwaysOnTop: typeof saved.alwaysOnTop === 'boolean' ? saved.alwaysOnTop : true,
+    x: typeof source.x === 'number' ? source.x : undefined,
+    y: typeof source.y === 'number' ? source.y : undefined,
+    alwaysOnTop: typeof source.alwaysOnTop === 'boolean' ? source.alwaysOnTop : true,
+    modeBounds: normalizeModeBounds(source.modeBounds),
   };
 }
 
@@ -56,12 +93,19 @@ function saveWindowState(extra = {}) {
   try {
     const previous = loadWindowState();
     const [x, y] = window.getPosition();
+    const [width, height] = window.getSize();
+    const mode = activeMode();
     writeJsonAtomic(windowStatePath(), {
       ...previous,
       ...extra,
       x,
       y,
       alwaysOnTop: window.isAlwaysOnTop(),
+      modeBounds: {
+        ...previous.modeBounds,
+        ...(extra.modeBounds || {}),
+        [mode]: { width, height },
+      },
     });
   } catch (error) {
     logError('window-state', error);
@@ -74,9 +118,25 @@ function clearPendingMoveSave() {
   moveSaveTimer = null;
 }
 
-/** Persist the current bounds immediately, skipping the `moved` debounce. */
+function clearPendingResizeSave() {
+  if (!resizeSaveTimer) return;
+  clearTimeout(resizeSaveTimer);
+  resizeSaveTimer = null;
+}
+
+/** Persist the size 200 ms after the last resize event. */
+function scheduleResizeSave() {
+  clearTimeout(resizeSaveTimer);
+  resizeSaveTimer = setTimeout(() => {
+    resizeSaveTimer = null;
+    saveWindowState();
+  }, RESIZE_SAVE_DELAY);
+}
+
+/** Persist the current bounds immediately, skipping the debounced saves. */
 function saveCurrentWindowBounds() {
   clearPendingMoveSave();
+  clearPendingResizeSave();
   saveWindowState();
 }
 
@@ -124,21 +184,33 @@ function pushState(state) {
 function createWindow() {
   const saved = loadWindowState();
   const { settings: currentSettings, effectiveTheme } = currentAppearance();
+  const mode = currentSettings.preset_mode;
+  const limits = appearance.formFactorBounds(mode);
+  const stored = saved.modeBounds[mode];
+  const size = clampSizeToMode(
+    mode,
+    stored ? stored.width : limits.width,
+    stored ? stored.height : limits.height,
+  );
   const display = screen.getPrimaryDisplay().workArea;
-  const defaultX = display.x + display.width - WINDOW_WIDTH - 24;
-  const defaultY = display.y + 24;
-  const position = isPositionOnAnyDisplay(saved.x, saved.y, WINDOW_WIDTH, WINDOW_HEIGHT)
-    ? clampToWorkArea(saved.x, saved.y, WINDOW_WIDTH, WINDOW_HEIGHT)
-    : { x: defaultX, y: defaultY };
+  const defaultPosition = clampToWorkArea(
+    display.x + display.width - size.width - 24,
+    display.y + 24,
+    size.width,
+    size.height,
+  );
+  const position = isPositionOnAnyDisplay(saved.x, saved.y, size.width, size.height)
+    ? clampToWorkArea(saved.x, saved.y, size.width, size.height)
+    : defaultPosition;
 
   mainWindow = new BrowserWindow({
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
+    width: size.width,
+    height: size.height,
     x: position.x,
     y: position.y,
     frame: false,
     title: 'AG Widgets',
-    resizable: false,
+    resizable: true,
     minimizable: true,
     maximizable: false,
     fullscreenable: false,
@@ -163,6 +235,9 @@ function createWindow() {
 
   if (saved.alwaysOnTop) mainWindow.setAlwaysOnTop(true, 'floating');
 
+  // Size limits and the restored size always follow the saved form factor.
+  applyFormFactor(mode);
+
   // Window opacity is part of the appearance settings; Electron may refuse a
   // negative or unsupported value on some platforms, so it never propagates.
   try {
@@ -180,21 +255,40 @@ function createWindow() {
   );
   session.defaultSession.setPermissionCheckHandler(() => false);
 
-  // The widget is a fixed-size surface: dragging or a DPI change must not resize it.
-  mainWindow.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT);
-  mainWindow.setMaximumSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+  // The widget is resizable, but only inside its current form factor. The OS
+  // already blocks min/max violations; a forced size (DPI change, programmatic
+  // resize) is clamped back here, and every resize is persisted debounced.
   let sizeGuard = false;
-  const enforceSize = () => {
-    if (!mainWindow || mainWindow.isDestroyed() || sizeGuard) return;
-    const [width, height] = mainWindow.getSize();
-    if (width === WINDOW_WIDTH && height === WINDOW_HEIGHT) return;
+  const enforceFormFactor = () => {
+    if (sizeGuard) return;
+    const window = getWindow();
+    if (!window || window.isMinimized()) return;
+    const mode = activeMode();
+    const limits = appearance.formFactorBounds(mode);
+    const [width, height] = window.getSize();
+    if (width <= 0 || height <= 0) return;
+    if (
+      width >= limits.minWidth &&
+      width <= limits.maxWidth &&
+      height >= limits.minHeight &&
+      height <= limits.maxHeight
+    ) {
+      return;
+    }
+    const target = clampSizeToMode(mode, width, height);
     sizeGuard = true;
-    mainWindow.setSize(WINDOW_WIDTH, WINDOW_HEIGHT, false);
+    window.setSize(target.width, target.height, false);
     setTimeout(() => {
       sizeGuard = false;
     }, 60);
   };
-  mainWindow.on('resize', enforceSize);
+  mainWindow.on('resize', () => {
+    enforceFormFactor();
+    scheduleResizeSave();
+  });
+  // `resized` fires once the user lets go of the frame; both paths share the
+  // same 200 ms debounce so only the final size reaches the disk.
+  mainWindow.on('resized', scheduleResizeSave);
   mainWindow.on('maximize', () => mainWindow.unmaximize());
   mainWindow.on('enter-full-screen', () => mainWindow.setFullScreen(false));
 
@@ -255,11 +349,12 @@ function settingsWindowPosition() {
     ? screen.getDisplayMatching(mainBounds)
     : screen.getPrimaryDisplay();
   const area = display.workArea;
+  const full = appearance.formFactorBounds('full');
   const bounds = mainBounds || {
-    x: area.x + area.width - WINDOW_WIDTH - 24,
+    x: area.x + area.width - full.width - 24,
     y: area.y + 24,
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
+    width: full.width,
+    height: full.height,
   };
   const rightX = bounds.x + bounds.width + SETTINGS_GAP;
   const leftX = bounds.x - SETTINGS_WIDTH - SETTINGS_GAP;
@@ -354,11 +449,46 @@ function pushAppearance(snapshot) {
   }
 }
 
+/**
+ * Switch the widget to `presetMode`: apply the OS size limits of that form
+ * factor, restore its stored size (or the default one) and nudge the window so
+ * it stays fully inside the work area. Returns true when the mode changed.
+ */
+function applyFormFactor(presetMode) {
+  const mode = appearance.normalizePresetMode(presetMode);
+  const changed = currentMode !== mode;
+  currentMode = mode;
+
+  const window = getWindow();
+  if (!window) return false;
+
+  const limits = appearance.formFactorBounds(mode);
+  window.setMinimumSize(limits.minWidth, limits.minHeight);
+  window.setMaximumSize(limits.maxWidth, limits.maxHeight);
+  if (!changed) return false;
+
+  const stored = loadWindowState().modeBounds[mode];
+  const target = clampSizeToMode(
+    mode,
+    stored ? stored.width : limits.width,
+    stored ? stored.height : limits.height,
+  );
+  const bounds = window.getBounds();
+  window.setSize(target.width, target.height, false);
+  const position = clampToWorkArea(bounds.x, bounds.y, target.width, target.height);
+  if (position.x !== bounds.x || position.y !== bounds.y) {
+    window.setPosition(position.x, position.y, false);
+  }
+  return true;
+}
+
 /** Re-apply opacity/background to both windows and broadcast the snapshot. */
 function applyAppearanceToWindows(snapshot) {
   if (!snapshot) return;
   const backgroundColor = appearance.windowBackgroundColor(snapshot.effectiveTheme);
   const opacity = snapshot.appearance ? snapshot.appearance.opacity : undefined;
+
+  if (snapshot.appearance) applyFormFactor(snapshot.appearance.preset_mode);
 
   const main = getWindow();
   if (main) {
@@ -421,11 +551,13 @@ function moveWindow(dx, dy) {
   const window = getWindow();
   if (!window) return;
   const bounds = window.getBounds();
+  // Drag the window at its current size: `minibar`/`pill` must not grow back to
+  // the `full` layout while being moved.
   const next = {
     x: Math.round(bounds.x + dx),
     y: Math.round(bounds.y + dy),
-    width: WINDOW_WIDTH,
-    height: WINDOW_HEIGHT,
+    width: bounds.width,
+    height: bounds.height,
   };
 
   // Clamp against the union of every display's work area instead of snapping to
@@ -440,7 +572,10 @@ function moveWindow(dx, dy) {
   // Keep TITLEBAR_GRAB pixels of the title bar visible horizontally and the
   // whole title strip below the desktop top edge; on displays shorter than the
   // window the top edge is never pushed off screen.
-  next.x = Math.max(left - WINDOW_WIDTH + TITLEBAR_GRAB, Math.min(next.x, right - TITLEBAR_GRAB));
+  next.x = Math.max(
+    left - bounds.width + TITLEBAR_GRAB,
+    Math.min(next.x, right - TITLEBAR_GRAB),
+  );
   next.y = Math.max(top, Math.min(next.y, bottom - TITLEBAR_GRAB));
   window.setBounds(next, false);
 }
@@ -452,6 +587,7 @@ module.exports = {
   getSettingsWindow,
   closeSettingsWindow,
   applyAppearanceToWindows,
+  applyFormFactor,
   pushAppearance,
   showWindow,
   hideWindow,
