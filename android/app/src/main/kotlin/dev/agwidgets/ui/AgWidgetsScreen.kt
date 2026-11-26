@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.updateAll
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.agwidgets.data.AgStatus
 import dev.agwidgets.data.NtfyClient
 import dev.agwidgets.data.StatusStore
@@ -54,11 +57,18 @@ import dev.agwidgets.ui.components.ContextCard
 import dev.agwidgets.ui.components.DiagnosticsCard
 import dev.agwidgets.ui.components.Header
 import dev.agwidgets.ui.components.HeroCard
+import dev.agwidgets.ui.components.InstalledWidgetInfo
 import dev.agwidgets.ui.components.SurfaceCard
 import dev.agwidgets.ui.components.ZCodeDashboardCard
 import dev.agwidgets.ui.theme.AgTheme
+import dev.agwidgets.ui.widget.WidgetConfigActivity
 import dev.agwidgets.widget.LimitsWidget
 import dev.agwidgets.widget.LimitsWidgetReceiver
+import dev.agwidgets.widget.WidgetConfig
+import dev.agwidgets.widget.WidgetConfigCodec
+import dev.agwidgets.widget.WidgetConfigStore
+import dev.agwidgets.widget.WidgetPresets
+import dev.agwidgets.widget.WidgetThemes
 import dev.agwidgets.work.RefreshWorker
 import dev.agwidgets.work.ResetAlertWorker
 import kotlinx.coroutines.CoroutineScope
@@ -180,6 +190,7 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
     var showDiagnostics by remember { mutableStateOf(false) }
     var notificationsDenied by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var installedWidgets by remember { mutableStateOf<List<InstalledWidgetInfo>>(emptyList()) }
 
     val oauthState by OAuthSessionHolder.state.collectAsState()
     val isOAuthPending = oauthState is OAuthUiState.Waiting
@@ -380,6 +391,39 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
         }
     }
 
+    fun loadWidgets() {
+        installedWidgets = runCatching {
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, LimitsWidgetReceiver::class.java)
+            manager.getAppWidgetIds(component)
+                .sorted()
+                .map { appWidgetId ->
+                    val config = WidgetConfigStore.get(context, appWidgetId)
+                    InstalledWidgetInfo(
+                        appWidgetId = appWidgetId,
+                        presetLabel = widgetPresetLabel(config),
+                        themeLabel = widgetThemeLabel(config.theme),
+                    )
+                }
+        }.getOrDefault(emptyList())
+    }
+
+    val launchConfig = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { loadWidgets() }
+
+    // Returning from the config Activity (or any other app) re-reads the list:
+    // the preset label and theme label shown here must match what is stored.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        loadWidgets()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) loadWidgets()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     LaunchedEffect(Unit) {
         if (lastStatus == null && (topic.isNotBlank() || zcodeToken.isNotBlank())) refresh()
     }
@@ -516,7 +560,16 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
                         },
                         onClearToken = { logout() },
                     )
-                    SurfaceCard(onPinWidget = { pinWidget() })
+                    SurfaceCard(
+                        installedWidgets = installedWidgets,
+                        onPinWidget = { pinWidget() },
+                        onConfigureWidget = { appWidgetId ->
+                            launchConfig.launch(
+                                Intent(context, WidgetConfigActivity::class.java)
+                                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId),
+                            )
+                        },
+                    )
                     DiagnosticsCard(
                         rawJson = lastStatus?.rawJson,
                         lastError = lastError,
@@ -540,4 +593,31 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
             )
         }
     }
+}
+
+/**
+ * Human label for a stored config: the first preset with the same theme,
+ * radius, density and enabled blocks wins; a hand-tuned config reads "Свой".
+ */
+private fun widgetPresetLabel(config: WidgetConfig): String {
+    val normalized = WidgetConfigCodec.normalize(config)
+    val enabled = normalized.blocks.filter { it.enabled }.map { it.id }.toSet()
+    val preset = WidgetPresets.all.firstOrNull { candidate ->
+        val target = WidgetConfigCodec.normalize(candidate.config)
+        target.theme == normalized.theme &&
+            target.cornerRadiusDp == normalized.cornerRadiusDp &&
+            target.density == normalized.density &&
+            target.blocks.filter { it.enabled }.map { it.id }.toSet() == enabled
+    }
+    return preset?.label ?: "Свой"
+}
+
+/** Human label for a [WidgetThemes] id; unknown ids fall back to the system theme. */
+private fun widgetThemeLabel(theme: String): String = when (WidgetThemes.normalize(theme)) {
+    WidgetThemes.GRAPHITE -> "Graphite"
+    WidgetThemes.PAPER -> "Paper"
+    WidgetThemes.OLED -> "OLED"
+    WidgetThemes.GLASS -> "Glass"
+    WidgetThemes.CLASSIC -> "Classic"
+    else -> "Авто"
 }
