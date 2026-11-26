@@ -186,13 +186,13 @@ function windowModeSubmenu(presetMode, handlers) {
 }
 
 /**
- * Apply a preset from the tray: persist it, then re-apply the fresh snapshot to
- * both windows. The IPC module is loaded lazily, exactly like
+ * Switch the window form factor from the tray without overwriting the user's
+ * theme, accent or block layout. The IPC module is loaded lazily, exactly like
  * `syncSettingsWindow`, so plain Node tests can load this file.
  */
 function applyWindowMode(presetMode) {
-  const next = appearance.applyPreset(presetMode);
-  if (!next) return;
+  const mode = appearance.normalizePresetMode(presetMode);
+  appearance.saveAppearance({ preset_mode: mode });
   const api = windowApi();
   try {
     const { buildSettingsSnapshot } = require('./ipc');

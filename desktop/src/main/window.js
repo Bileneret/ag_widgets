@@ -457,6 +457,7 @@ function pushAppearance(snapshot) {
 function applyFormFactor(presetMode) {
   const mode = appearance.normalizePresetMode(presetMode);
   const changed = currentMode !== mode;
+  if (changed) clearPendingResizeSave();
   currentMode = mode;
 
   const window = getWindow();

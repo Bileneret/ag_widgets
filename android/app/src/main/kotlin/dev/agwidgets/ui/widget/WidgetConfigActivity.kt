@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
+import androidx.lifecycle.lifecycleScope
 import dev.agwidgets.ui.components.GlassCard
 import dev.agwidgets.ui.theme.AGWidgetsTheme
 import dev.agwidgets.ui.theme.AgTheme
@@ -72,7 +73,7 @@ import dev.agwidgets.widget.WidgetConfigStore
 import dev.agwidgets.widget.WidgetDensity
 import dev.agwidgets.widget.WidgetPresets
 import dev.agwidgets.widget.WidgetThemes
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -100,11 +101,17 @@ class WidgetConfigActivity : ComponentActivity() {
         val appContext = applicationContext
         setContent {
             var config by remember { mutableStateOf(WidgetConfigStore.get(appContext, appWidgetId)) }
+            var saving by remember { mutableStateOf(false) }
             AGWidgetsTheme(themeMode = config.theme) {
                 WidgetConfigScreen(
                     config = config,
+                    saving = saving,
                     onChange = { config = it },
-                    onSave = { saveAndRefresh(appWidgetId, config) },
+                    onSave = {
+                        if (saving) return@WidgetConfigScreen
+                        saving = true
+                        saveAndRefresh(appWidgetId, config)
+                    },
                     onCancel = { finish() },
                 )
             }
@@ -113,23 +120,27 @@ class WidgetConfigActivity : ComponentActivity() {
 
     private fun saveAndRefresh(appWidgetId: Int, config: WidgetConfig) {
         WidgetConfigStore.save(this, appWidgetId, config)
-        val manager = GlanceAppWidgetManager(this)
-        val refreshed = runCatching {
-            runBlocking {
-                LimitsWidget().update(this@WidgetConfigActivity, manager.getGlanceIdBy(appWidgetId))
+        lifecycleScope.launch {
+            val manager = GlanceAppWidgetManager(this@WidgetConfigActivity)
+            val refreshed = runCatching {
+                LimitsWidget().update(
+                    this@WidgetConfigActivity,
+                    manager.getGlanceIdBy(appWidgetId),
+                )
+            }.isSuccess
+            if (!refreshed) {
+                runCatching { LimitsWidget().updateAll(this@WidgetConfigActivity) }
             }
-        }.isSuccess
-        if (!refreshed) {
-            runCatching { runBlocking { LimitsWidget().updateAll(this@WidgetConfigActivity) } }
+            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+            finish()
         }
-        setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
-        finish()
     }
 }
 
 @Composable
 private fun WidgetConfigScreen(
     config: WidgetConfig,
+    saving: Boolean,
     onChange: (WidgetConfig) -> Unit,
     onSave: () -> Unit,
     onCancel: () -> Unit,
@@ -189,8 +200,8 @@ private fun WidgetConfigScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                Button(onClick = onSave, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "Сохранить виджет")
+                Button(onClick = onSave, enabled = !saving, modifier = Modifier.fillMaxWidth()) {
+                    Text(text = if (saving) "Сохранение…" else "Сохранить виджет")
                 }
             }
         }
@@ -396,7 +407,15 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             value = config.opacity,
             valueRange = 0f..1f,
             steps = 19,
-            onValueChange = { onChange(config.copy(opacity = it)) },
+            onValueChange = {
+                val snapped = WidgetConfigCodec.clampStep(
+                    it.toDouble(),
+                    WidgetConfigCodec.MIN_OPACITY.toDouble(),
+                    WidgetConfigCodec.MAX_OPACITY.toDouble(),
+                    WidgetConfigCodec.DEFAULT_OPACITY.toDouble(),
+                ).toFloat()
+                onChange(config.copy(opacity = snapped))
+            },
         )
         LabeledSlider(
             title = "Скругление",
@@ -404,7 +423,9 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             value = config.cornerRadiusDp.toFloat(),
             valueRange = 0f..24f,
             steps = 11,
-            onValueChange = { onChange(config.copy(cornerRadiusDp = it.roundToInt())) },
+            onValueChange = {
+                onChange(config.copy(cornerRadiusDp = WidgetConfigCodec.clampCornerRadius(it.toDouble())))
+            },
         )
         LabeledSlider(
             title = "Масштаб текста",
@@ -412,7 +433,15 @@ private fun StyleSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit)
             value = config.fontScale,
             valueRange = 0.85f..1.4f,
             steps = 10,
-            onValueChange = { onChange(config.copy(fontScale = it)) },
+            onValueChange = {
+                val snapped = WidgetConfigCodec.clampStep(
+                    it.toDouble(),
+                    WidgetConfigCodec.MIN_FONT_SCALE.toDouble(),
+                    WidgetConfigCodec.MAX_FONT_SCALE.toDouble(),
+                    WidgetConfigCodec.DEFAULT_FONT_SCALE.toDouble(),
+                ).toFloat()
+                onChange(config.copy(fontScale = snapped))
+            },
         )
         Text(text = "Плотность", color = colors.secondary, fontSize = 13.sp)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

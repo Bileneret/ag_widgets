@@ -1566,6 +1566,10 @@ html[data-mode="minibar"] .strip-text {
   text-overflow: ellipsis;
 }
 
+html[data-mode="minibar"] #strip-refresh-btn {
+  margin-left: auto;
+}
+
 /* Pill: context only, settings button reveals on hover/focus. */
 html[data-mode="pill"] .titlebar,
 html[data-mode="pill"] #widget-cards,

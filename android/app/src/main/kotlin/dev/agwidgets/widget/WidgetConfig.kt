@@ -48,9 +48,12 @@ enum class WidgetBlockId(val id: String) {
     companion object {
         val all: List<WidgetBlockId> = entries
 
-        fun fromId(raw: String?): WidgetBlockId? {
-            val value = raw?.trim()?.lowercase().orEmpty()
-            return all.firstOrNull { it.id == value }
+        fun fromId(raw: String?): WidgetBlockId? = when (raw?.trim()?.lowercase().orEmpty()) {
+            "header" -> HEADER
+            "context", "context_hero" -> CONTEXT
+            "quotas", "quotas_grid" -> QUOTAS
+            "zcode", "zcode_card" -> ZCODE
+            else -> null
         }
     }
 }
@@ -396,8 +399,9 @@ object WidgetConfigCodec {
                 theme = raw.optString("theme", WidgetThemes.SYSTEM),
                 customAccent = raw.opt("custom_accent") as? String,
                 opacity = (raw.opt("opacity") as? Number)?.toFloat() ?: DEFAULT_OPACITY,
-                cornerRadiusDp = (raw.opt("corner_radius") as? Number)?.toInt()
-                    ?: DEFAULT_CORNER_RADIUS,
+                cornerRadiusDp = clampCornerRadius(
+                    (raw.opt("corner_radius") as? Number)?.toDouble(),
+                ),
                 fontScale = (raw.opt("font_scale") as? Number)?.toFloat() ?: DEFAULT_FONT_SCALE,
                 density = WidgetDensity.fromId(raw.optString("density", ""))
                     ?: WidgetDensity.COMFORTABLE,

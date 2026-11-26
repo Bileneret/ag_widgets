@@ -520,7 +520,7 @@
       loginTimer = null;
       if (AGW.zcode.getLogin().state === expectedState) {
         AGW.zcode.setLogin('idle');
-        AGW.zcode.render(latestState.status);
+        AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
       }
     }, delay);
   }
@@ -537,14 +537,14 @@
         }
       }
       AGW.zcode.setLogin('idle');
-      AGW.zcode.render(latestState.status);
+      AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
       return;
     }
 
     const attempt = ++loginAttempt;
     clearLoginTimer();
     AGW.zcode.setLogin('pending');
-    AGW.zcode.render(latestState.status);
+    AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
 
     try {
       if (!bridge || typeof bridge.zcodeLogin !== 'function') throw new Error('Вход недоступен');
@@ -556,7 +556,7 @@
         'success',
         result.refreshed ? 'Вход выполнен · обновляю баланс…' : 'Токен сохранён · нажмите ⟳ для обновления',
       );
-      AGW.zcode.render(latestState.status);
+      AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
 
       const state = await bridge.getState();
       if (attempt !== loginAttempt) return;
@@ -566,7 +566,7 @@
     } catch (error) {
       if (attempt !== loginAttempt) return;
       AGW.zcode.setLogin('error', String(error.message || error).slice(0, 90));
-      AGW.zcode.render(latestState.status);
+      AGW.zcode.render(latestState.status, blockOptionsFor('zcode_card'));
       resetLoginLater('error', 6000);
     }
   });

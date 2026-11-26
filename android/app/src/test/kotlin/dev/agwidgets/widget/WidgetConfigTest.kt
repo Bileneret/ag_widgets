@@ -157,6 +157,36 @@ class WidgetConfigTest {
     }
 
     @Test
+    fun desktopExportedBlockNamesImportCleanlyOnAndroid() {
+        val desktopJson = """
+            {
+              "schema_version": 1,
+              "theme": "paper",
+              "custom_accent": "#34D399",
+              "corner_radius": 5.2,
+              "blocks": [
+                { "id": "zcode_card", "enabled": true, "options": { "show_balance_bar": false } },
+                { "id": "context_hero", "enabled": true },
+                { "id": "quotas_grid", "enabled": false, "options": { "show_gemini": false } }
+              ]
+            }
+        """.trimIndent()
+        val parsed = WidgetConfigCodec.importJson(desktopJson)
+        assertNotNull("desktop JSON must import on Android", parsed)
+        parsed!!
+        assertEquals("paper", parsed.theme)
+        assertEquals("#34d399", parsed.customAccent)
+        assertEquals(6, parsed.cornerRadiusDp)
+        assertEquals(
+            listOf(WidgetBlockId.ZCODE, WidgetBlockId.CONTEXT, WidgetBlockId.QUOTAS, WidgetBlockId.HEADER),
+            parsed.blocks.map { it.id },
+        )
+        assertEquals(false, parsed.option(WidgetBlockId.ZCODE, "show_balance_bar", true))
+        assertEquals(false, parsed.isEnabled(WidgetBlockId.QUOTAS))
+        assertEquals(false, parsed.option(WidgetBlockId.QUOTAS, "show_gemini", true))
+    }
+
+    @Test
     fun brokenAndOversizedJsonIsRejectedWithoutThrowing() {
         val inputs = listOf(
             null,

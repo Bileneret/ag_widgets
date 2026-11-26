@@ -246,6 +246,7 @@ function registerIpc() {
       }
       const snapshot = buildSettingsSnapshot();
       windowApi.applyAppearanceToWindows(snapshot);
+      refreshMenu();
       return snapshot;
     }),
   );

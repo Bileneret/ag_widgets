@@ -574,7 +574,13 @@
           return bridge.applyPreset(id);
         })
         .then(function (result) {
-          if (looksLikeSnapshot(result)) render(result);
+          if (looksLikeSnapshot(result)) {
+            render(result);
+          } else if (result && result.ok && looksLikeSnapshot(result.snapshot)) {
+            render(result.snapshot);
+          } else if (result && result.ok === false) {
+            showError(result.error || 'Не удалось применить пресет.');
+          }
         })
         .catch(function () {
           showError('Не удалось применить пресет.');
