@@ -46,6 +46,53 @@ body {
   color: var(--text-muted);
 }
 
+/* --- Tabs --------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 3px;
+  margin-top: 9px;
+  padding: 3px;
+  background: var(--badge);
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+}
+
+.tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+  color: var(--accent);
+}
+
+.tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
 .settings-main {
   flex: 1 1 auto;
   min-height: 0;
@@ -91,6 +138,48 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.panel-hint {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* --- Presets ------------------------------------------------------------ */
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.preset-btn {
+  min-width: 0;
+  padding: 7px 6px;
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.preset-btn:hover {
+  border-color: var(--accent);
+}
+
+.preset-btn.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--card));
+  color: var(--accent);
 }
 
 /* --- Theme picker ------------------------------------------------------- */
@@ -257,6 +346,300 @@ body {
   color: var(--button-text);
 }
 
+.segmented-wide {
+  display: flex;
+  width: 100%;
+}
+
+.segmented-wide .segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Builder: form factor ----------------------------------------------- */
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 7px 9px;
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.mode-btn:hover {
+  border-color: var(--accent);
+}
+
+.mode-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+}
+
+.mode-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.mode-size {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mode-btn[aria-pressed="true"] .mode-name {
+  color: var(--accent);
+}
+
+/* --- Builder: block list ------------------------------------------------ */
+
+.block-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.block-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+.block-card.is-off {
+  opacity: 0.62;
+}
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.block-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.block-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.block-move {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--badge);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.block-move:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.block-card .switch {
+  width: 34px;
+  height: 20px;
+}
+
+.block-card .switch::after {
+  width: 12px;
+  height: 12px;
+}
+
+.block-card .switch[aria-checked="true"]::after {
+  transform: translateX(14px);
+}
+
+.block-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.option-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* --- Builder: JSON export / import -------------------------------------- */
+
+.io-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.json-area {
+  width: 100%;
+  min-width: 0;
+  max-height: 150px;
+  padding: 8px;
+  background: var(--badge);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  resize: vertical;
+  user-select: text;
+  overflow-x: hidden;
+}
+
+.json-area::placeholder {
+  color: var(--text-muted);
+}
+
+.json-status {
+  min-height: 15px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.json-status.is-error {
+  color: var(--risk);
+}
+
+.json-status.is-ok {
+  color: var(--ok);
+}
+
+/* --- Accent ------------------------------------------------------------- */
+
+.accent-swatches {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.swatch {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--swatch, var(--accent));
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.swatch:hover {
+  transform: scale(1.06);
+}
+
+.swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent);
+}
+
+.accent-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accent-inputs .text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.color-input {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  background: var(--badge);
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.text-input {
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--badge);
+  border: 1px solid var(--card-border);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+
+.text-input::placeholder {
+  color: var(--text-muted);
+}
+
+.text-input-number {
+  flex: 0 0 auto;
+  width: 64px;
+}
+
+.text-input[aria-invalid="true"] {
+  border-color: var(--risk);
+}
+
 /* --- Sliders ------------------------------------------------------------ */
 
 .range-row {
@@ -402,6 +785,10 @@ body {
 
 /* --- Messages ----------------------------------------------------------- */
 
+.hidden {
+  display: none !important;
+}
+
 .notice,
 .settings-error {
   padding: 8px 10px;
@@ -425,15 +812,21 @@ body {
 /* --- Focus and disabled states ----------------------------------------- */
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 button:disabled,
-input:disabled {
+input:disabled,
+textarea:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.block-move:disabled {
+  opacity: 0.32;
 }
 
 body.is-disabled .settings-main,
