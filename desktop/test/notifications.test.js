@@ -289,6 +289,27 @@ test('a visible voucher notifies and is remembered on disk', () => {
   assert.equal(newer[0].body, '500M токенов');
 });
 
+test('a voucher already visible at startup does not notify on the next poll', () => {
+  freshPrefsDir('voucher-baseline');
+
+  const visible = stateWith({ zcode: VISIBLE_VOUCHER() });
+  assert.deepEqual(notifications.handleStateUpdate(visible), []);
+  assert.deepEqual(notifications.handleStateUpdate(visible), []);
+});
+
+test('muting notifications preserves warned red chats instead of clearing them', () => {
+  freshPrefsDir('mute-preserves-red');
+
+  const evaluated = notifications.evaluateNotifications(
+    YELLOW_STATE(),
+    RED_STATE(),
+    { ...notifications.DEFAULT_PREFERENCES, enabled: false },
+    { notifiedRedChats: new Set(['a']) },
+  );
+  assert.deepEqual(evaluated.events, []);
+  assert.deepEqual([...evaluated.notifiedRedChats], ['a']);
+});
+
 test('a voucher without matched text uses the fallback body', () => {
   freshPrefsDir('voucher-fallback');
 
