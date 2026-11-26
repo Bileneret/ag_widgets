@@ -20,11 +20,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,14 +56,18 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import dev.agwidgets.BuildConfig
+import dev.agwidgets.R
 import dev.agwidgets.data.AgStatus
+import dev.agwidgets.data.E2eCrypto
 import dev.agwidgets.data.NtfyClient
+import dev.agwidgets.data.PairingConfig
 import dev.agwidgets.data.StatusStore
 import dev.agwidgets.data.ZCodeClient
 import dev.agwidgets.data.ZCodeOAuthPollResult
 import dev.agwidgets.data.ZCodeStore
 import dev.agwidgets.notify.Notifier
 import dev.agwidgets.ui.components.AccessCard
+import dev.agwidgets.ui.components.AgGhostButton
 import dev.agwidgets.ui.components.ChannelCard
 import dev.agwidgets.ui.components.ContextCard
 import dev.agwidgets.ui.components.DiagnosticsCard
@@ -184,12 +194,20 @@ internal object OAuthSessionHolder {
  * token source and the 429 backoff.
  */
 @Composable
-internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit) {
+internal fun AgWidgetsScreen(
+    themeMode: String,
+    onSelectTheme: (String) -> Unit,
+    pendingPairingUri: String? = null,
+    onConsumePairingUri: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = AgTheme.colors
 
     var topic by remember { mutableStateOf(StatusStore.getTopic(context)) }
+    var ntfyServer by remember { mutableStateOf(StatusStore.getNtfyServer(context)) }
+    var hasE2eKey by remember { mutableStateOf(StatusStore.hasE2eKey(context)) }
+    var pairingRequest by remember { mutableStateOf<String?>(null) }
     var zcodeToken by remember { mutableStateOf(if (BuildConfig.ZCODE_ENABLED) ZCodeStore.getToken(context) else "") }
     var lastStatus by remember { mutableStateOf<AgStatus?>(StatusStore.getMergedStatus(context)) }
     var lastError by remember { mutableStateOf<String?>(StatusStore.getLastError(context)) }
@@ -202,6 +220,17 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
     var notificationsDenied by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var installedWidgets by remember { mutableStateOf<List<InstalledWidgetInfo>>(emptyList()) }
+
+    // A scanned agw://pair link is held here until the user confirms or closes
+    // the dialog; the dialog itself is drawn above the onboarding branch.
+    LaunchedEffect(pendingPairingUri) {
+        if (!pendingPairingUri.isNullOrBlank()) pairingRequest = pendingPairingUri
+    }
+
+    fun dismissPairing() {
+        pairingRequest = null
+        onConsumePairingUri()
+    }
 
     val oauthState by OAuthSessionHolder.state.collectAsState()
     val isOAuthPending = oauthState is OAuthUiState.Waiting
@@ -299,7 +328,11 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
             val messages = mutableListOf<String>()
 
             if (mode != StatusStore.MODE_ZCODE && topic.isNotBlank()) {
-                NtfyClient.fetchLatestMessage(topic).fold(
+                NtfyClient.fetchLatestMessage(
+                    topic,
+                    serverUrl = StatusStore.getNtfyServer(context),
+                    e2eKey = StatusStore.getE2eKey(context),
+                ).fold(
                     onSuccess = { jsonText ->
                         val parsed = AgStatus.fromJson(jsonText)
                         if (parsed != null) {
@@ -610,24 +643,41 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
                                 ChannelCard(
                                     topic = topic,
                                     onTopicChange = { topic = it },
+                                    server = ntfyServer,
+                                    onServerChange = { ntfyServer = it },
+                                    hasE2eKey = hasE2eKey,
                                     isRefreshing = isRefreshing,
                                     statusMessage = statusMessage,
                                     onSave = {
-                                        val prevTopic = StatusStore.getTopic(context)
-                                        val nextTopic = topic.trim()
-                                        StatusStore.setTopic(context, nextTopic)
-                                        // Alerts scheduled for the old topic are meaningless now.
-                                        if (nextTopic.isEmpty() || nextTopic != prevTopic) {
-                                            ResetAlertWorker.cancelAllResetAlerts(context)
+                                        if (!StatusStore.setNtfyServer(context, ntfyServer)) {
+                                            statusMessage = "Сервер должен начинаться с https://"
+                                        } else {
+                                            val prevTopic = StatusStore.getTopic(context)
+                                            val nextTopic = topic.trim()
+                                            StatusStore.setTopic(context, nextTopic)
+                                            // Alerts scheduled for the old topic are meaningless now.
+                                            if (nextTopic.isEmpty() || nextTopic != prevTopic) {
+                                                ResetAlertWorker.cancelAllResetAlerts(context)
+                                            }
+                                            hasE2eKey = StatusStore.hasE2eKey(context)
+                                            syncPeriodicSchedule()
+                                            lastStatus = StatusStore.getMergedStatus(context)
+                                            lastError = StatusStore.getLastError(context)
+                                            nowMs = System.currentTimeMillis()
+                                            statusMessage =
+                                                if (nextTopic.isEmpty()) "Тема очищена" else "Тема сохранена"
+                                            scope.launch { runCatching { LimitsWidget().updateAll(context) } }
                                         }
-                                        syncPeriodicSchedule()
-                                        lastStatus = StatusStore.getMergedStatus(context)
-                                        lastError = StatusStore.getLastError(context)
-                                        nowMs = System.currentTimeMillis()
-                                        statusMessage = if (nextTopic.isEmpty()) "Тема очищена" else "Тема сохранена"
-                                        scope.launch { runCatching { LimitsWidget().updateAll(context) } }
                                     },
                                     onRefresh = { refresh() },
+                                    onRequestPairing = { pairingRequest = it },
+                                    onResetE2eKey = {
+                                        StatusStore.setE2eKey(context, null)
+                                        hasE2eKey = false
+                                        ResetAlertWorker.cancelAllResetAlerts(context)
+                                        statusMessage = "E2E-ключ сброшен"
+                                        scope.launch { runCatching { LimitsWidget().updateAll(context) } }
+                                    },
                                 )
                             }
                             if (BuildConfig.ZCODE_ENABLED) {
@@ -702,7 +752,121 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
                 }
             }
         }
+
+        // Drawn above the onboarding/dashboard branch on purpose: a QR code
+        // scanned on the very first run must be usable before a mode is chosen.
+        pairingRequest?.let { uri ->
+            PairingConfirmDialog(
+                uri = uri,
+                onDismiss = { dismissPairing() },
+                onConfirm = { config ->
+                    if (StatusStore.applyPairing(context, config)) {
+                        ResetAlertWorker.cancelAllResetAlerts(context)
+                        mode = StatusStore.MODE_PC
+                        topic = StatusStore.getTopic(context)
+                        ntfyServer = StatusStore.getNtfyServer(context)
+                        hasE2eKey = StatusStore.hasE2eKey(context)
+                        syncPeriodicSchedule()
+                        statusMessage = "Сопряжение выполнено"
+                        lastStatus = StatusStore.getMergedStatus(context)
+                        lastError = StatusStore.getLastError(context)
+                        nowMs = System.currentTimeMillis()
+                        dismissPairing()
+                        refresh()
+                    } else {
+                        statusMessage = "Не удалось применить код сопряжения"
+                        dismissPairing()
+                    }
+                },
+            )
+        }
     }
+}
+
+/**
+ * Confirmation for a scanned/pasted `agw://pair` link.
+ *
+ * Nothing is persisted here: the dialog only shows what the code would change
+ * and forwards the parsed [PairingConfig] to the caller.
+ */
+@Composable
+private fun PairingConfirmDialog(
+    uri: String,
+    onDismiss: () -> Unit,
+    onConfirm: (PairingConfig) -> Unit,
+) {
+    val colors = AgTheme.colors
+    val parsed = remember(uri) { E2eCrypto.parsePairingUri(uri) }
+    val config = parsed.getOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(AgDim.Page),
+        containerColor = colors.card,
+        titleContentColor = colors.text,
+        textContentColor = colors.secondary,
+        title = {
+            Text(
+                text = if (config != null) "Подключить телефон" else "Не удалось прочитать код сопряжения",
+                style = AgType.title,
+                color = colors.text,
+            )
+        },
+        text = {
+            if (config == null) {
+                Text(
+                    text = parsed.exceptionOrNull()?.message ?: "Некорректная ссылка сопряжения",
+                    style = AgType.body,
+                    color = colors.secondary,
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap)) {
+                    Text(
+                        text = "Приложение: ${stringResource(R.string.app_name)}",
+                        style = AgType.body,
+                        color = colors.secondary,
+                    )
+                    Text(
+                        text = "Сервер: ${config.server}",
+                        style = AgType.body,
+                        color = colors.secondary,
+                    )
+                    Text(
+                        text = "Тема: ${E2eCrypto.maskTopic(config.topic)}",
+                        style = AgType.body,
+                        color = colors.secondary,
+                    )
+                    Text(
+                        text = if (config.e2eKey != null) "E2E: AES-256-GCM" else "E2E: выкл",
+                        style = AgType.body,
+                        color = colors.secondary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (config != null) {
+                Button(
+                    onClick = { onConfirm(config) },
+                    shape = RoundedCornerShape(AgDim.ControlRadius),
+                    modifier = Modifier.height(AgDim.MinTouch),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = colors.glow,
+                        contentColor = colors.onGlow,
+                    ),
+                ) {
+                    Text("Подключить", style = AgType.body)
+                }
+            } else {
+                AgGhostButton(text = "Закрыть", onClick = onDismiss)
+            }
+        },
+        dismissButton = {
+            if (config != null) {
+                AgGhostButton(text = "Отмена", onClick = onDismiss)
+            }
+        },
+    )
 }
 
 /**
