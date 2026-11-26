@@ -268,7 +268,11 @@ function evaluateNotifications(prevState, currState, prefs, runtimeState = {}) {
   }
 
   if (prefsN.enabled === false) {
-    return { events: [], nextPrefs: prefsN, notifiedRedChats: new Set() };
+    return {
+      events: [],
+      nextPrefs: prefsN,
+      notifiedRedChats: cloneSet(runtime.notifiedRedChats),
+    };
   }
 
   const events = [];
@@ -312,17 +316,21 @@ function evaluateNotifications(prevState, currState, prefs, runtimeState = {}) {
   }
 
   // Channel 2: ZCode voucher, mirroring Notifier.kt:74-88.
+  const visibleVoucherKey = (z) =>
+    z &&
+    z.coupon_state === 'visible' &&
+    z.coupon_visible === true &&
+    !z.network_error &&
+    z.auth_ok !== false
+      ? `${z.plan_id || ''}|${z.matched || ''}`
+      : null;
   const zcode = currState.status && currState.status.zcode;
-  if (
-    prefsN.zcode_voucher === true &&
-    zcode &&
-    zcode.coupon_state === 'visible' &&
-    zcode.coupon_visible === true &&
-    !zcode.network_error &&
-    zcode.auth_ok !== false
-  ) {
-    const couponKey = `${zcode.plan_id || ''}|${zcode.matched || ''}`;
-    if (couponKey !== nextPrefs.last_coupon_key) {
+  const couponKey = visibleVoucherKey(zcode);
+  const prevCouponKey = visibleVoucherKey(prevState.status && prevState.status.zcode);
+  if (prefsN.zcode_voucher === true && couponKey !== null) {
+    // Skip when the exact same voucher was already visible in the baseline /
+    // previous snapshot so a fresh install never spams on the first 5s poll.
+    if (couponKey !== prevCouponKey && couponKey !== nextPrefs.last_coupon_key) {
       nextPrefs.last_coupon_key = couponKey;
       const detail = String(zcode.matched || '').trim();
       events.push({
