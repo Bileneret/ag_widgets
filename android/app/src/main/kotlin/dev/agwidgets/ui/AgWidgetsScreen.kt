@@ -678,11 +678,19 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
                         }
                     }
 
+                    val footerCopy = when {
+                        mode == StatusStore.MODE_ZCODE ->
+                            "Токен ZCode хранится только на телефоне"
+                        BuildConfig.ZCODE_ENABLED ->
+                            "В ntfy уходят числа квот, токенов, ID диалога и флаг ваучера"
+                        else ->
+                            "В ntfy уходят числа квот, токенов и ID диалога"
+                    }
                     Text(
                         text = if (colors.isClassic) {
-                            "AGW / 01 · В NTFY УХОДЯТ ЧИСЛА КВОТ, ТОКЕНОВ, ID ДИАЛОГА И ФЛАГ ВАУЧЕРА"
+                            "AGW / 01 · ${footerCopy.uppercase()}"
                         } else {
-                            "В ntfy уходят числа квот, токенов, ID диалога и флаг ваучера"
+                            footerCopy
                         },
                         style = if (colors.isClassic) {
                             AgType.caption.copy(fontFamily = FontFamily.Monospace, letterSpacing = 0.8.sp, fontSize = 9.sp)

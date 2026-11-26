@@ -8,8 +8,8 @@ const { logError } = require('./logger');
 const appearance = require('./appearance');
 
 /** Settings window: two tabs fit without a horizontal scrollbar. */
-const SETTINGS_WIDTH = 390;
-const SETTINGS_HEIGHT = 540;
+const SETTINGS_WIDTH = 430;
+const SETTINGS_HEIGHT = 620;
 /** Gap between the widget and the Settings window. */
 const SETTINGS_GAP = 12;
 /** Minimum slice of the title bar that must stay on screen while dragging. */

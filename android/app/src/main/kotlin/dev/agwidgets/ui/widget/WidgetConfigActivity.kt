@@ -319,37 +319,37 @@ private fun PresetsSection(config: WidgetConfig, onChange: (WidgetConfig) -> Uni
 private fun BlocksSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) {
     ConfigSection(title = "Блоки") {
         // The `context` flavour has no ZCode block: hide its row instead of
-        // offering a switch that can never render. `index` stays the one of the
-        // full config, so reorder still moves the stored block.
-        config.blocks.withIndex()
+        // offering a switch that can never render, and reorder between adjacent
+        // visible rows so arrows never swap with an invisible block.
+        val visible = config.blocks.withIndex()
             .filter { BuildConfig.ZCODE_ENABLED || it.value.id != WidgetBlockId.ZCODE }
-            .forEachIndexed { position, indexed ->
-                val index = indexed.index
-                val block = indexed.value
-                // Flat sections with a hairline: a bordered card inside a GlassCard
-                // is a card in a card.
-                if (position > 0) {
-                    HorizontalDivider(thickness = 1.dp, color = AgTheme.colors.border)
-                }
-                BlockRow(
-                    block = block,
-                    title = blockTitle(block.id),
-                    canMoveUp = index > 0,
-                    canMoveDown = index < config.blocks.lastIndex,
-                    onMoveUp = { onChange(config.moveBlock(index, index - 1)) },
-                    onMoveDown = { onChange(config.moveBlock(index, index + 1)) },
-                    onToggle = { enabled ->
-                        onChange(config.updateBlock(block.id) { it.copy(enabled = enabled) })
-                    },
-                    onOption = { key, value ->
-                        onChange(
-                            config.updateBlock(block.id) {
-                                it.copy(options = it.options + (key to value))
-                            },
-                        )
-                    },
-                )
+        visible.forEachIndexed { position, indexed ->
+            val index = indexed.index
+            val block = indexed.value
+            // Flat sections with a hairline: a bordered card inside a GlassCard
+            // is a card in a card.
+            if (position > 0) {
+                HorizontalDivider(thickness = 1.dp, color = AgTheme.colors.border)
             }
+            BlockRow(
+                block = block,
+                title = blockTitle(block.id),
+                canMoveUp = position > 0,
+                canMoveDown = position < visible.lastIndex,
+                onMoveUp = { onChange(config.moveBlock(index, visible[position - 1].index)) },
+                onMoveDown = { onChange(config.moveBlock(index, visible[position + 1].index)) },
+                onToggle = { enabled ->
+                    onChange(config.updateBlock(block.id) { it.copy(enabled = enabled) })
+                },
+                onOption = { key, value ->
+                    onChange(
+                        config.updateBlock(block.id) {
+                            it.copy(options = it.options + (key to value))
+                        },
+                    )
+                },
+            )
+        }
     }
 }
 
