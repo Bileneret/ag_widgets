@@ -543,8 +543,11 @@ private fun zcodeChip(z: ZCodeStatus?, colors: AgColors): Pair<String, ColorProv
     val warn = ColorProvider(colors.amber.copy(alpha = chipAlpha))
     val coupon = ColorProvider(colors.glow.copy(alpha = if (colors.isDark) 0.40f else 0.12f))
     val glm = ColorProvider(colors.violet.copy(alpha = if (colors.isDark) 0.20f else 0.12f))
+    if (z == null) return "ZCode: нет данных" to neutral
+    // Local copies keep the nullable checks below readable and smart-cast safe.
+    val remaining = z.remainingUnits
+    val total = z.totalUnits
     return when {
-        z == null -> "ZCode: нет данных" to neutral
         z.isCouponUnknown -> {
             val text = when (z.errorKind) {
                 "network" -> "ZCode: нет связи"
@@ -563,8 +566,8 @@ private fun zcodeChip(z: ZCodeStatus?, colors: AgColors): Pair<String, ColorProv
         z.method == "api" && z.authOk == false -> "ZCode: нужен вход" to warn
         z.method == "disabled" -> "ZCode не подключён" to neutral
         z.isCouponVisible -> "Ваучер доступен!" to coupon
-        z.remainingUnits != null && (z.remainingUnits > 0 || (z.totalUnits != null && z.totalUnits > 0)) ->
-            "${z.planName.ifBlank { "ZCode" }} ${formatUnits(z.remainingUnits)}" to glm
+        remaining != null && (remaining > 0 || (total != null && total > 0)) ->
+            "${z.planName.ifBlank { "ZCode" }} ${formatUnits(remaining)}" to glm
         !z.running && z.method != "api" -> "ZCode не запущен" to neutral
         else -> "ZCode: нет ваучера" to neutral
     }
