@@ -319,14 +319,18 @@ private fun QuotaRing(
                     overflow = TextOverflow.Clip,
                     modifier = Modifier.widthIn(max = 70.dp),
                 )
-                Text(
-                    text = formatCountdownShort(bucket?.resetTime, nowMs)?.takeIf { it != "—" } ?: "нет данных",
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    lineHeight = 14.sp,
-                    color = resetColor,
-                    maxLines = 1,
-                )
+                // A full quota has no running timer yet: hide the line instead
+                // of printing "нет данных" inside a 100% ring.
+                formatCountdownShort(bucket?.resetTime, nowMs)?.takeIf { it != "—" }?.let { reset ->
+                    Text(
+                        text = reset,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        color = resetColor,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }

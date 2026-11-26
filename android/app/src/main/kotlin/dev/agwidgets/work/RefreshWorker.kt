@@ -139,7 +139,7 @@ private suspend fun refreshZCode(context: Context, timeoutMs: Int): Boolean {
                 if (zStatus.networkError || zStatus.errorKind != null) {
                     val reason = when (zStatus.errorKind) {
                         "auth_expired" -> "ZCode: токен истёк"
-                        "rate_limited" -> "ZCode: лимит запросов (429)"
+                        "rate_limited" -> "ZCode: слишком много запросов — попробуйте позже"
                         "server_error" -> "ZCode: ошибка сервера"
                         "api_changed" -> "ZCode: схема API изменилась"
                         "parse_failed" -> "ZCode: не удалось разобрать ответ"

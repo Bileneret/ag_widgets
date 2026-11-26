@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +38,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,15 +100,20 @@ fun WidgetLivePreview(config: WidgetConfig, modifier: Modifier = Modifier) {
     val status = remember(context) { StatusStore.getMergedStatus(context) }
     val state = remember(status) { buildPreviewState(status) }
     val scale = config.fontScale.coerceIn(0.85f, 1.4f)
+    // Every `sp` in the preview also follows the system font scale. Planning the
+    // fit against `config.fontScale` alone is what cut the lower quota row at
+    // font_scale 1.3.
+    val effectiveScale = scale * LocalDensity.current.fontScale
     val innerPadding = when (config.density) {
         WidgetDensity.COMPACT -> 8.dp
         WidgetDensity.COMFORTABLE -> 10.dp
         WidgetDensity.SPACIOUS -> 14.dp
     }
+    // Same vertical rhythm as the real Glance body: 4 / 6 / 8 dp, never 16.
     val blockSpacing = when (config.density) {
         WidgetDensity.COMPACT -> 4.dp
-        WidgetDensity.COMFORTABLE -> 5.dp
-        WidgetDensity.SPACIOUS -> 7.dp
+        WidgetDensity.COMFORTABLE -> 6.dp
+        WidgetDensity.SPACIOUS -> 8.dp
     }
     val cells = remember(config) { previewCells(config) }
     val frameRadius = max(16, config.cornerRadiusDp + 10)
@@ -156,16 +165,21 @@ fun WidgetLivePreview(config: WidgetConfig, modifier: Modifier = Modifier) {
                     .padding(framePadding.dp),
             ) {
                 val budget = maxHeight - innerPadding * 2
-                val fit = remember(config, budget, scale) {
+                val fit = remember(config, budget, effectiveScale) {
                     fitBlocks(
                         config = config,
                         blocks = config.blocks.filter { it.enabled },
                         budgetDp = budget.value,
-                        scale = scale,
+                        scale = effectiveScale,
                         spacingDp = blockSpacing.value,
                         maxBlocks = previewMaxBlocks(cells.second),
                     )
                 }
+                // Presets without a header (Контекст 4×1 / Только ZCode) host the
+                // single inline ⟳ inside their first visible block, exactly like
+                // the Glance body does.
+                val inlineHost = fit.visible.firstOrNull()?.id
+                val headerEnabled = config.isEnabled(WidgetBlockId.HEADER)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -179,41 +193,59 @@ fun WidgetLivePreview(config: WidgetConfig, modifier: Modifier = Modifier) {
                         .padding(innerPadding),
                     verticalArrangement = Arrangement.spacedBy(blockSpacing),
                 ) {
-                    fit.visible.forEach { block ->
-                        when (block.id) {
-                            WidgetBlockId.HEADER -> PreviewHeader(colors, glow, state, scale)
-                            WidgetBlockId.CONTEXT -> PreviewContext(
-                                colors = colors,
-                                glow = glow,
-                                state = state,
-                                scale = scale,
-                                showCompactChip = config.option(
-                                    WidgetBlockId.CONTEXT,
-                                    "show_compact_chip",
-                                    true,
-                                ),
-                            )
-                            WidgetBlockId.QUOTAS -> PreviewQuotas(
-                                colors = colors,
-                                glow = glow,
-                                violet = violet,
-                                state = state,
-                                scale = scale,
-                                showGemini = config.option(WidgetBlockId.QUOTAS, "show_gemini", true),
-                                showThirdParty = config.option(WidgetBlockId.QUOTAS, "show_3p", true),
-                                showCountdown = config.option(WidgetBlockId.QUOTAS, "show_countdown", true),
-                            )
-                            WidgetBlockId.ZCODE -> PreviewZCode(
-                                colors = colors,
-                                violet = violet,
-                                state = state,
-                                scale = scale,
-                                showBalanceBar = config.option(
-                                    WidgetBlockId.ZCODE,
-                                    "show_balance_bar",
-                                    true,
-                                ),
-                            )
+                    // Material's `bodyLarge` (lineHeight 24sp) is inherited by every
+                    // `Text` here otherwise, which tripled the height of a 7.5sp
+                    // label and pushed the last block out of the frame. The widget
+                    // itself uses natural line heights.
+                    CompositionLocalProvider(LocalTextStyle provides TextStyle.Default) {
+                        fit.visible.forEachIndexed { index, block ->
+                            // Same anchor as the Glance body: the closing ZCode row
+                            // sits on the bottom edge, never in the middle of slack.
+                            if (index == fit.visible.lastIndex &&
+                                fit.visible.size > 1 &&
+                                block.id == WidgetBlockId.ZCODE
+                            ) {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            val showInlineRefresh = !headerEnabled && block.id == inlineHost
+                            when (block.id) {
+                                WidgetBlockId.HEADER -> PreviewHeader(colors, glow, state, scale)
+                                WidgetBlockId.CONTEXT -> PreviewContext(
+                                    colors = colors,
+                                    glow = glow,
+                                    state = state,
+                                    scale = scale,
+                                    showCompactChip = config.option(
+                                        WidgetBlockId.CONTEXT,
+                                        "show_compact_chip",
+                                        true,
+                                    ),
+                                    showInlineRefresh = showInlineRefresh,
+                                )
+                                WidgetBlockId.QUOTAS -> PreviewQuotas(
+                                    colors = colors,
+                                    glow = glow,
+                                    violet = violet,
+                                    state = state,
+                                    scale = scale,
+                                    showGemini = config.option(WidgetBlockId.QUOTAS, "show_gemini", true),
+                                    showThirdParty = config.option(WidgetBlockId.QUOTAS, "show_3p", true),
+                                    showCountdown = config.option(WidgetBlockId.QUOTAS, "show_countdown", true),
+                                    showInlineRefresh = showInlineRefresh,
+                                )
+                                WidgetBlockId.ZCODE -> PreviewZCode(
+                                    colors = colors,
+                                    violet = violet,
+                                    state = state,
+                                    scale = scale,
+                                    showBalanceBar = config.option(
+                                        WidgetBlockId.ZCODE,
+                                        "show_balance_bar",
+                                        true,
+                                    ),
+                                    showInlineRefresh = showInlineRefresh,
+                                )
+                            }
                         }
                     }
                 }
@@ -284,8 +316,9 @@ private fun previewMaxBlocks(rows: Int): Int = when {
  * Distributes enabled blocks over the cell budget, in the user's order.
  *
  * Heights are measured against the rendered atoms (header line, context pair,
- * two quota rows, ZCode chip) times the config font scale. Whatever does not fit
- * is counted, never compressed: a 0.7dp row is worse than an honest "+1 скрыто".
+ * two quota rows, ZCode chip) times the effective type scale — config font scale
+ * multiplied by the system one. Whatever does not fit is counted, never
+ * compressed: a 0.7dp row is worse than an honest "+1 скрыто".
  */
 private fun fitBlocks(
     config: WidgetConfig,
@@ -304,12 +337,20 @@ private fun fitBlocks(
         else -> 0
     }
 
+    // Measured heights of the atoms below at scale 1.0, multiplied by the
+    // effective type scale. Text lines dominate every atom, so the growth is
+    // linear in `scale`; the plan is a slight over-estimate on purpose — a block
+    // that is counted in "+N не помещается" is honest, a clipped row is not.
     fun heightOf(id: WidgetBlockId): Float = when (id) {
-        WidgetBlockId.HEADER -> 20f
-        WidgetBlockId.CONTEXT -> 32f
-        WidgetBlockId.ZCODE -> 26f
-        WidgetBlockId.QUOTAS -> 34f * quotaRows
-    } * scale
+        WidgetBlockId.HEADER -> 17f * scale
+        WidgetBlockId.CONTEXT -> 26f * scale
+        WidgetBlockId.ZCODE -> 16f * scale
+        WidgetBlockId.QUOTAS -> if (quotaRows == 0) {
+            0f
+        } else {
+            quotaRows * 27f * scale + (quotaRows - 1) * 4f
+        }
+    }
 
     val visible = ArrayList<WidgetBlockConfig>(blocks.size)
     var used = 0f
@@ -419,6 +460,7 @@ private fun PreviewContext(
     state: PreviewState,
     scale: Float,
     showCompactChip: Boolean,
+    showInlineRefresh: Boolean,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -446,6 +488,7 @@ private fun PreviewContext(
                 color = colors.secondary,
                 maxLines = 1,
             )
+            if (showInlineRefresh) PreviewRefreshIcon(colors)
         }
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             PreviewBar(
@@ -455,11 +498,13 @@ private fun PreviewContext(
                 modifier = Modifier.weight(1f),
                 height = 3.dp,
             )
-            if (showCompactChip) {
+            // The home screen only offers `/compact` on a red window; at 43%
+            // yellow the preview used to invent a chip Glance never draws.
+            if (showCompactChip && state.contextLevel == "red") {
                 Spacer(Modifier.width(5.dp))
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(AgDim.ChipRadius))
                         .background(colors.badge)
                         .padding(horizontal = 4.dp, vertical = 1.dp),
                 ) {
@@ -476,6 +521,26 @@ private fun PreviewContext(
     }
 }
 
+/** Compact inline ⟳ for presets that carry no header block at all. */
+@Composable
+private fun PreviewRefreshIcon(colors: AgColors) {
+    Spacer(Modifier.width(4.dp))
+    Box(
+        modifier = Modifier
+            .size(14.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(colors.badge),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = UiIcons.Refresh,
+            contentDescription = null,
+            tint = colors.secondary,
+            modifier = Modifier.size(10.dp),
+        )
+    }
+}
+
 @Composable
 private fun PreviewQuotas(
     colors: AgColors,
@@ -486,14 +551,21 @@ private fun PreviewQuotas(
     showGemini: Boolean,
     showThirdParty: Boolean,
     showCountdown: Boolean,
+    showInlineRefresh: Boolean,
 ) {
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (showGemini) {
-            PreviewQuotaRow(state.gemini, glow, colors, scale, showCountdown)
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (showGemini) {
+                PreviewQuotaRow(state.gemini, glow, colors, scale, showCountdown)
+            }
+            if (showThirdParty) {
+                PreviewQuotaRow(state.thirdParty, violet, colors, scale, showCountdown)
+            }
         }
-        if (showThirdParty) {
-            PreviewQuotaRow(state.thirdParty, violet, colors, scale, showCountdown)
-        }
+        if (showInlineRefresh) PreviewRefreshIcon(colors)
     }
 }
 
@@ -566,6 +638,11 @@ private fun PreviewQuotaCell(
     }
 }
 
+/**
+ * ZCode row, drawn exactly like the Glance chip: neutral backdrop with a
+ * semantic dot in modern themes, the author's translucent colour chip in
+ * Classic. The balance bar only exists when there is a balance to show.
+ */
 @Composable
 private fun PreviewZCode(
     colors: AgColors,
@@ -573,33 +650,68 @@ private fun PreviewZCode(
     state: PreviewState,
     scale: Float,
     showBalanceBar: Boolean,
+    showInlineRefresh: Boolean,
 ) {
+    val accent = when (state.zcodeTone) {
+        "rose" -> colors.rose
+        "amber" -> colors.amber
+        "glow" -> violet
+        else -> colors.muted
+    }
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (colors.isDark) violet.copy(alpha = 0.20f) else violet.copy(alpha = 0.12f))
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        ) {
-            Text(
-                text = state.zcodeLabel,
-                fontSize = scaled(8f, scale),
-                fontWeight = FontWeight.Medium,
-                color = colors.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        if (colors.isClassic) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(AgDim.ChipRadius))
+                    .background(accent.copy(alpha = 0.20f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = state.zcodeLabel,
+                    fontSize = scaled(8f, scale),
+                    fontWeight = FontWeight.Medium,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(AgDim.ChipRadius))
+                    .background(colors.badge)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(accent),
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = state.zcodeLabel,
+                    fontSize = scaled(8f, scale),
+                    fontWeight = FontWeight.Medium,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        if (showBalanceBar) {
+        // No balance -> no track: an empty grey pill read as "0 remaining".
+        if (showBalanceBar && state.zcodeFraction != null) {
             Spacer(Modifier.width(6.dp))
             PreviewBar(
-                fraction = state.zcodeFraction ?: 0f,
-                color = violet,
+                fraction = state.zcodeFraction,
+                color = accent,
                 track = colors.track,
                 modifier = Modifier.weight(1f),
                 height = 4.dp,
             )
         }
+        if (showInlineRefresh) PreviewRefreshIcon(colors)
     }
 }
 
@@ -615,7 +727,8 @@ private fun PreviewBar(
         modifier = modifier
             .fillMaxWidth()
             .height(height)
-            .clip(CircleShape)
+            // 2dp token radius, exactly like the Glance `Bar`.
+            .clip(RoundedCornerShape(AgDim.BarRadius))
             .background(track),
     ) {
         Box(
@@ -652,6 +765,8 @@ private data class PreviewState(
     val gemini: List<PreviewQuota>,
     val thirdParty: List<PreviewQuota>,
     val zcodeLabel: String,
+    /** Semantic dot colour key: `muted` / `glow` / `amber` / `rose`. */
+    val zcodeTone: String,
     val zcodeFraction: Float?,
 )
 
@@ -671,6 +786,7 @@ private val demoPreview = PreviewState(
         PreviewQuota("Claude / GPT 7 дн", 63, "3д 8ч"),
     ),
     zcodeLabel = "GLM 320M",
+    zcodeTone = "glow",
     zcodeFraction = 0.64f,
 )
 
@@ -715,6 +831,7 @@ private fun buildPreviewState(status: AgStatus?): PreviewState {
             quotaPreview("Claude / GPT 7 дн", thirdWeekly, now),
         ),
         zcodeLabel = zcodeLabel(status.zcode),
+        zcodeTone = zcodeTone(status.zcode),
         zcodeFraction = zcodeFraction(status.zcode),
     )
 }
@@ -728,15 +845,37 @@ private fun quotaPreview(label: String, bucket: QuotaBucket?, now: Long): Previe
     )
 }
 
+/**
+ * Same four-state vocabulary as the Glance chip, so the builder never promises a
+ * label the home screen will not draw.
+ */
 private fun zcodeLabel(zcode: ZCodeStatus?): String {
     if (zcode == null) return "ZCode: нет данных"
     val remaining = zcode.remainingUnits
     return when {
-        remaining != null && remaining > 0 ->
+        zcode.isCouponUnknown -> when (zcode.errorKind) {
+            "auth_expired" -> "ZCode: нужен вход"
+            "network" -> "ZCode: нет связи"
+            else -> "ZCode: ошибка проверки"
+        }
+        zcode.networkError -> "ZCode: нет связи"
+        zcode.method == "disabled" -> "ZCode: не подключён"
+        zcode.isCouponVisible -> "ZCode: ваучер доступен"
+        remaining != null && (remaining > 0 || (zcode.totalUnits ?: 0L) > 0L) ->
             "${zcode.planName.ifBlank { "ZCode" }} ${formatUnits(remaining)}"
-        zcode.isCouponVisible -> "Ваучер доступен"
-        else -> "ZCode"
+        else -> "ZCode: нет ваучера"
     }
+}
+
+private fun zcodeTone(zcode: ZCodeStatus?): String = when {
+    zcode == null -> "muted"
+    zcode.isCouponUnknown && zcode.errorKind == "auth_expired" -> "amber"
+    zcode.isCouponUnknown -> "rose"
+    zcode.networkError -> "rose"
+    zcode.method == "disabled" -> "muted"
+    zcode.isCouponVisible -> "glow"
+    (zcode.remainingUnits ?: 0L) > 0L || (zcode.totalUnits ?: 0L) > 0L -> "glow"
+    else -> "muted"
 }
 
 private fun zcodeFraction(zcode: ZCodeStatus?): Float? {

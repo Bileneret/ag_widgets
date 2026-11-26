@@ -59,11 +59,24 @@ import kotlin.math.roundToInt
  *    with a computed dp width instead of a stretched bitmap.
  */
 
-/** Horizontal padding scale: compact 12dp, comfortable 16dp, spacious 20dp. */
+/**
+ * Horizontal padding scale: compact 8dp, comfortable 12dp, spacious 14dp.
+ *
+ * Deliberately narrower than the app scale: the widget lives on a 4-column grid
+ * and every dp of side padding is taken from the quota bars. Classic 4×2 used
+ * 12dp, so its look stays 1:1.
+ */
 internal fun densityPadding(density: WidgetDensity): Int = when (density) {
-    WidgetDensity.COMPACT -> 12
-    WidgetDensity.COMFORTABLE -> 16
-    WidgetDensity.SPACIOUS -> 20
+    WidgetDensity.COMPACT -> 8
+    WidgetDensity.COMFORTABLE -> 12
+    WidgetDensity.SPACIOUS -> 14
+}
+
+/** Vertical body padding: never the same value as the horizontal one. */
+internal fun densityVerticalPadding(density: WidgetDensity): Int = when (density) {
+    WidgetDensity.COMPACT -> 8
+    WidgetDensity.COMFORTABLE -> 10
+    WidgetDensity.SPACIOUS -> 12
 }
 
 /**
@@ -73,8 +86,12 @@ internal fun densityPadding(density: WidgetDensity): Int = when (density) {
 internal fun scaledSp(base: Float, fontScale: Float, colors: AgColors): Float =
     (base * fontScale).coerceIn(if (colors.isClassic) 8f else 11f, 24f)
 
-/** Small intra-block spacing: compact 4dp, comfortable 6dp, spacious 8dp. */
-private fun densityGap(density: WidgetDensity): Int = when (density) {
+/**
+ * Vertical gap between two stacked blocks: compact 4dp, comfortable 6dp,
+ * spacious 8dp. The same token drives the gap between the two quota rows, so a
+ * 4×2 body never spends 16dp per seam (that is what pushed Classic to 4×3).
+ */
+internal fun blockGap(density: WidgetDensity): Int = when (density) {
     WidgetDensity.COMPACT -> 4
     WidgetDensity.COMFORTABLE -> 6
     WidgetDensity.SPACIOUS -> 8
@@ -95,23 +112,25 @@ internal fun fit(text: String, maxChars: Int): String =
     if (text.length <= maxChars) text else text.take(maxChars - 1).trimEnd() + "…"
 
 /**
- * 48×48 touch target with a 32×32 visible plate and a vector glyph.
+ * Compact 40×32 refresh plate for the header row.
  *
- * The old 42×40 box with a `⟳` text glyph was below the HIG minimum, depended on
- * the system font and had no accessibility label.
+ * A 48×48 box in the header alone inflated the Classic 4×2 header to 48dp and
+ * pushed the whole widget into a 4×3 cell. The visible glyph stays 17dp and the
+ * accessibility label is unchanged.
  */
 @Composable
-fun InlineRefreshButton(colors: AgColors, fontScale: Float) {
+fun HeaderRefreshButton(colors: AgColors) {
     Box(
         modifier = GlanceModifier
             .clickable(actionRunCallback<RefreshActionCallback>())
-            .size(48.dp)
+            .width(40.dp)
+            .height(32.dp)
             .semantics { contentDescription = "Обновить данные" },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = GlanceModifier
-                .size(32.dp)
+                .size(28.dp)
                 .background(ColorProvider(colors.badge))
                 .cornerRadius(8.dp),
             contentAlignment = Alignment.Center,
@@ -120,7 +139,39 @@ fun InlineRefreshButton(colors: AgColors, fontScale: Float) {
                 provider = ImageProvider(R.drawable.ic_widget_refresh),
                 contentDescription = null,
                 colorFilter = ColorFilter.tint(ColorProvider(colors.text)),
-                modifier = GlanceModifier.size(18.dp),
+                modifier = GlanceModifier.size(17.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 40×40 touch target with a 28×28 visible plate and a vector glyph.
+ *
+ * Sized for the short 4×1 / 2×1 widgets it lives in: a 48dp box next to a single
+ * context line made the block taller than the cell.
+ */
+@Composable
+fun InlineRefreshButton(colors: AgColors, fontScale: Float) {
+    Box(
+        modifier = GlanceModifier
+            .clickable(actionRunCallback<RefreshActionCallback>())
+            .size(40.dp)
+            .semantics { contentDescription = "Обновить данные" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = GlanceModifier
+                .size(28.dp)
+                .background(ColorProvider(colors.badge))
+                .cornerRadius(8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                provider = ImageProvider(R.drawable.ic_widget_refresh),
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(ColorProvider(colors.text)),
+                modifier = GlanceModifier.size(16.dp),
             )
         }
     }
@@ -179,7 +230,7 @@ fun HeaderFreshnessAtom(
             maxLines = 1,
             modifier = GlanceModifier.defaultWeight(),
         )
-        InlineRefreshButton(colors = colors, fontScale = config.fontScale)
+        HeaderRefreshButton(colors = colors)
         Spacer(GlanceModifier.width(4.dp))
         Text(
             text = time,
@@ -320,7 +371,7 @@ fun QuotasAtom(
     val thirdFiveHour = buckets.firstOrNull { it.id.startsWith("3p-") && it.kind == "5h" }
     val thirdWeekly = buckets.firstOrNull { it.id.startsWith("3p-") && it.kind == "weekly" }
 
-    val gap = densityGap(config.density)
+    val gap = blockGap(config.density)
     val now = System.currentTimeMillis()
     val cellGap = if (isCompactHeight) 6.dp else 8.dp
     val grid = showGemini && show3p && !isCompactHeight
@@ -328,12 +379,17 @@ fun QuotasAtom(
     val cellCount = if (grid) 2 else listOf(showGemini, show3p).count { it } * 2
     val cellWidth = ((contentWidthDp - cellGap.value * (cellCount - 1)) / cellCount)
         .coerceAtLeast(8f)
+    // Classic keeps the author's campaign vocabulary (`GEMINI 5H` / `WK`).
+    val geminiFiveHourLabel = if (colors.isClassic) "GEMINI 5H" else "Gemini 5 ч"
+    val geminiWeeklyLabel = if (colors.isClassic) "GEMINI WK" else "Gemini 7 дн"
+    val thirdFiveHourLabel = if (colors.isClassic) "CLAUDE/GPT 5H" else "Claude / GPT 5 ч"
+    val thirdWeeklyLabel = if (colors.isClassic) "CLAUDE/GPT WK" else "Claude / GPT 7 дн"
 
     if (grid) {
         Column(modifier = GlanceModifier.fillMaxWidth()) {
             Row(modifier = GlanceModifier.fillMaxWidth()) {
                 QuotaCell(
-                    label = "Gemini 5 ч",
+                    label = geminiFiveHourLabel,
                     bucket = fiveHour,
                     config = config,
                     colors = colors,
@@ -345,7 +401,7 @@ fun QuotasAtom(
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "Gemini 7 дн",
+                    label = geminiWeeklyLabel,
                     bucket = weekly,
                     config = config,
                     colors = colors,
@@ -359,7 +415,7 @@ fun QuotasAtom(
             Spacer(GlanceModifier.height(gap.dp))
             Row(modifier = GlanceModifier.fillMaxWidth()) {
                 QuotaCell(
-                    label = "Claude / GPT 5 ч",
+                    label = thirdFiveHourLabel,
                     bucket = thirdFiveHour,
                     config = config,
                     colors = colors,
@@ -371,7 +427,7 @@ fun QuotasAtom(
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "Claude / GPT 7 дн",
+                    label = thirdWeeklyLabel,
                     bucket = thirdWeekly,
                     config = config,
                     colors = colors,
@@ -388,7 +444,7 @@ fun QuotasAtom(
         Row(modifier = GlanceModifier.fillMaxWidth()) {
             if (showGemini) {
                 QuotaCell(
-                    label = "Gemini 5 ч",
+                    label = geminiFiveHourLabel,
                     bucket = fiveHour,
                     config = config,
                     colors = colors,
@@ -400,7 +456,7 @@ fun QuotasAtom(
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "Gemini 7 дн",
+                    label = geminiWeeklyLabel,
                     bucket = weekly,
                     config = config,
                     colors = colors,
@@ -414,7 +470,7 @@ fun QuotasAtom(
             if (showGemini && show3p) Spacer(GlanceModifier.width(gap.dp))
             if (show3p) {
                 QuotaCell(
-                    label = "Claude / GPT 5 ч",
+                    label = thirdFiveHourLabel,
                     bucket = thirdFiveHour,
                     config = config,
                     colors = colors,
@@ -426,7 +482,7 @@ fun QuotasAtom(
                 )
                 Spacer(GlanceModifier.width(cellGap))
                 QuotaCell(
-                    label = "Claude / GPT 7 дн",
+                    label = thirdWeeklyLabel,
                     bucket = thirdWeekly,
                     config = config,
                     colors = colors,
@@ -449,6 +505,7 @@ fun ZCodeAtom(
     colors: AgColors,
     showInlineRefresh: Boolean,
     contentWidthDp: Float,
+    trailingContext: ContextSummary? = null,
 ) {
     val (text, accent) = zcodeStatus(zcode, colors)
 
@@ -463,6 +520,16 @@ fun ZCodeAtom(
                 colors = colors,
                 fontScale = config.fontScale,
             )
+            // Classic 4×2 kept a compact context reading on this same line; it
+            // only appears when the CONTEXT block itself is switched off.
+            if (trailingContext != null) {
+                Spacer(GlanceModifier.defaultWeight())
+                ContextTrailingReadout(
+                    ctx = trailingContext,
+                    colors = colors,
+                    fontScale = config.fontScale,
+                )
+            }
             if (showInlineRefresh) {
                 Spacer(GlanceModifier.defaultWeight())
                 InlineRefreshButton(colors = colors, fontScale = config.fontScale)
@@ -473,7 +540,7 @@ fun ZCodeAtom(
         if (config.option(WidgetBlockId.ZCODE, "show_balance_bar", true) &&
             remaining != null && total != null && total > 0L
         ) {
-            Spacer(GlanceModifier.height(densityGap(config.density).dp))
+            Spacer(GlanceModifier.height(blockGap(config.density).dp))
             Bar(
                 fraction = (remaining.toFloat() / total.toFloat()).coerceIn(0f, 1f),
                 fillColor = colors.glow,
@@ -542,8 +609,9 @@ private fun CompactChip(colors: AgColors, fontScale: Float) {
 }
 
 /**
- * Neutral chip with a semantic dot: the label is always `text`, never the colour
- * it fills with, so the backdrop cannot eat the contrast.
+ * Status chip. Modern themes use a neutral backdrop with a semantic dot (the
+ * label is always `text`, so a tinted fill can never eat the contrast); Classic
+ * keeps the author's translucent colour chip without the dot.
  */
 @Composable
 private fun StatusChip(
@@ -552,6 +620,25 @@ private fun StatusChip(
     colors: AgColors,
     fontScale: Float,
 ) {
+    if (colors.isClassic) {
+        Box(
+            modifier = GlanceModifier
+                .background(ColorProvider(accent.copy(alpha = 0.20f)))
+                .cornerRadius(CHIP_RADIUS.dp)
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text(
+                text = fit(text, 26),
+                style = TextStyle(
+                    color = ColorProvider(colors.text),
+                    fontSize = scaledSp(9.5f, fontScale, colors).sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                maxLines = 1,
+            )
+        }
+        return
+    }
     Row(
         modifier = GlanceModifier
             .background(ColorProvider(colors.badge))
@@ -575,6 +662,46 @@ private fun StatusChip(
             ),
             maxLines = 1,
         )
+    }
+}
+
+/**
+ * Classic's compact context reading (`ЧАТ 223K 43%` + level dot), the one the
+ * author drew on the same line as the ZCode chip.
+ */
+@Composable
+private fun ContextTrailingReadout(
+    ctx: ContextSummary,
+    colors: AgColors,
+    fontScale: Float,
+) {
+    val tokens = ctx.tokens ?: return
+    val levelColor = when (ctx.level) {
+        "red" -> colors.rose
+        "yellow" -> colors.amber
+        "green" -> colors.green
+        "unknown" -> colors.muted
+        else -> colors.glow
+    }
+    val prefix = if (ctx.active) "ЧАТ" else "ПК"
+    val pct = ctx.pct?.takeIf { it.isFinite() }?.let { " ${it.roundToInt()}%" }.orEmpty()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "$prefix ${formatK(tokens)}$pct",
+            style = TextStyle(
+                color = ColorProvider(colors.muted),
+                fontSize = scaledSp(9.5f, fontScale, colors).sp,
+                fontFamily = FontFamily.Monospace,
+            ),
+            maxLines = 1,
+        )
+        Spacer(GlanceModifier.width(4.dp))
+        Box(
+            modifier = GlanceModifier
+                .size(6.dp)
+                .background(ColorProvider(levelColor))
+                .cornerRadius(3.dp),
+        ) {}
     }
 }
 
@@ -603,6 +730,11 @@ private fun QuotaCell(
     }
 
     Column(modifier = modifier) {
+        // Classic keeps the author's 8.5 / 10 / 8 sp campaign scale; modern
+        // themes sit on the 11 / 12 / 10 sp app scale.
+        val labelSize = if (colors.isClassic) 8.5f else 11f
+        val valueSize = if (colors.isClassic) 10f else 12f
+        val resetSize = if (colors.isClassic) 8f else 10f
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -611,7 +743,8 @@ private fun QuotaCell(
                 text = label,
                 style = TextStyle(
                     color = ColorProvider(colors.muted),
-                    fontSize = scaledSp(11f, config.fontScale, colors).sp,
+                    fontSize = scaledSp(labelSize, config.fontScale, colors).sp,
+                    fontFamily = if (colors.isClassic) FontFamily.Monospace else FontFamily.SansSerif,
                     fontWeight = FontWeight.Medium,
                 ),
                 maxLines = 1,
@@ -621,7 +754,7 @@ private fun QuotaCell(
                 text = if (pct == null) "—" else "$pct%",
                 style = TextStyle(
                     color = ColorProvider(valueColor),
-                    fontSize = scaledSp(12f, config.fontScale, colors).sp,
+                    fontSize = scaledSp(valueSize, config.fontScale, colors).sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 maxLines = 1,
@@ -641,7 +774,7 @@ private fun QuotaCell(
                 text = reset,
                 style = TextStyle(
                     color = ColorProvider(colors.muted),
-                    fontSize = scaledSp(10f, config.fontScale, colors).sp,
+                    fontSize = scaledSp(resetSize, config.fontScale, colors).sp,
                     fontFamily = FontFamily.Monospace,
                 ),
                 maxLines = 1,

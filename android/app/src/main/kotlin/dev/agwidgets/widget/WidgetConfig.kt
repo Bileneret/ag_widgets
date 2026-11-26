@@ -135,10 +135,12 @@ object WidgetPresets {
             opacity = 0.95f,
             cornerRadiusDp = 14,
             density = WidgetDensity.COMFORTABLE,
+            // Same order as `WidgetConfigCodec.defaultBlocks()`, so opening the
+            // builder on a default config highlights this preset.
             blocks = listOf(
                 block(WidgetBlockId.HEADER),
-                block(WidgetBlockId.QUOTAS),
                 block(WidgetBlockId.CONTEXT),
+                block(WidgetBlockId.QUOTAS),
                 block(WidgetBlockId.ZCODE),
             ),
         ),

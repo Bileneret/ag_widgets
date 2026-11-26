@@ -82,12 +82,18 @@ class RefreshActionCallback : ActionCallback {
 internal enum class WidgetLayoutMode { COMPACT, STANDARD, EXPANDED }
 
 /**
- * Height in dp below 165 is COMPACT, 165..215 inclusive is STANDARD and
- * anything above 215 is EXPANDED.
+ * Height buckets that decide how many blocks survive.
+ *
+ * Calibrated against real launcher cells, not against the tallest layout the
+ * builder can produce: a 4×2 widget on this device is ~110–155 dp tall, so the
+ * old `165 dp` COMPACT threshold demoted every 4×2 to a 2-block stub.
+ *  - `< 95 dp`      → COMPACT   (4×1 / 2×1: two blocks, one quota row)
+ *  - `95..185 dp`   → STANDARD  (4×2: three blocks, 2×2 quota grid)
+ *  - `> 185 dp`     → EXPANDED  (4×3+: every enabled block)
  */
 internal fun widgetLayoutMode(heightDp: Float): WidgetLayoutMode = when {
-    heightDp < 165f -> WidgetLayoutMode.COMPACT
-    heightDp <= 215f -> WidgetLayoutMode.STANDARD
+    heightDp < 95f -> WidgetLayoutMode.COMPACT
+    heightDp <= 185f -> WidgetLayoutMode.STANDARD
     else -> WidgetLayoutMode.EXPANDED
 }
 
@@ -135,8 +141,12 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
     val mode = widgetLayoutMode(heightDp)
     val isCompactHeight = mode == WidgetLayoutMode.COMPACT
     val isNarrow = widthDp < 220f
-    val horizontalStep = if (isCompactHeight) 6 else densityPadding(config.density)
-    val contentWidthDp = (widthDp - 2 * horizontalStep).coerceAtLeast(24f)
+    // Horizontal padding and the vertical rhythm are two separate scales: the
+    // old shared `16 dp` step was used as the gap between every block too.
+    val horizontalPadding = if (isCompactHeight) 8 else densityPadding(config.density)
+    val verticalPadding = if (isCompactHeight) 6 else densityVerticalPadding(config.density)
+    val gap = if (isCompactHeight) 4 else blockGap(config.density)
+    val contentWidthDp = (widthDp - 2 * horizontalPadding).coerceAtLeast(24f)
 
     // Colours are always fixed ARGB values: `system` was already resolved against
     // the current night mode, so every palette is concrete by this point.
@@ -152,7 +162,6 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
 
     val opacity = config.opacity.coerceIn(0f, 1f)
     val cornerRadius = config.cornerRadiusDp.dp
-    val step = if (isCompactHeight) 6 else densityPadding(config.density)
 
     // Classic keeps the author's glass art as the base plate; every other theme
     // is a flat surface. Translucency is one continuous slider value in both
@@ -179,9 +188,10 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
                 contentScale = ContentScale.FillBounds,
                 modifier = GlanceModifier.fillMaxSize().cornerRadius(cornerRadius)
             )
-            // Smooth veil instead of a hard cut at 90%: the glass fades into the
-            // wallpaper as the player moves the opacity slider.
-            val veil = ((1f - opacity) * 0.9f).coerceIn(0f, 0.85f)
+            // Smooth veil instead of a hard cut at 90%: at the default 95%
+            // opacity the author's `glass_bg` renders untouched (veil == 0) and
+            // only a deliberate reduction of the slider dims it.
+            val veil = ((0.95f - opacity) / 0.95f * 0.85f).coerceIn(0f, 0.85f)
             if (veil > 0.02f) {
                 Box(
                     modifier = GlanceModifier
@@ -221,10 +231,10 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
             modifier = GlanceModifier
                 .fillMaxSize()
                 .padding(
-                    start = step.dp,
-                    end = step.dp,
-                    top = if (isCompactHeight) step.dp else 8.dp,
-                    bottom = step.dp,
+                    start = horizontalPadding.dp,
+                    end = horizontalPadding.dp,
+                    top = verticalPadding.dp,
+                    bottom = verticalPadding.dp,
                 ),
             verticalAlignment = Alignment.Top
         ) {
@@ -232,10 +242,21 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
             val enabledBlocks = visibleBlocks(config, mode)
             val inlineHost = enabledBlocks.firstOrNull()?.id ?: config.firstEnabled()?.id
             val stale = isStale(status)
+            // Classic 4×2 has no CONTEXT block; the author kept its compact
+            // reading on the ZCode line instead of leaving the row half empty.
+            val trailingContext = status.contextSummary
+                ?.takeIf { colors.isClassic && !config.isEnabled(WidgetBlockId.CONTEXT) }
 
             enabledBlocks.forEachIndexed { index, block ->
+                val isLast = index == enabledBlocks.lastIndex
                 if (index > 0) {
-                    Spacer(GlanceModifier.height(step.dp))
+                    // Anchor the closing ZCode row to the bottom edge: without
+                    // the weight spacer it floated between the 2nd and 3rd grid
+                    // rows of a 4×3 cell with an empty third below it.
+                    if (isLast && block.id == WidgetBlockId.ZCODE) {
+                        Spacer(GlanceModifier.defaultWeight())
+                    }
+                    Spacer(GlanceModifier.height(gap.dp))
                 }
                 // Presets without a header (context_compact / zcode_only) host the
                 // single inline ⟳ in their first enabled block instead.
@@ -261,6 +282,7 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
                         colors = colors,
                         showInlineRefresh = showInlineRefresh,
                         contentWidthDp = contentWidthDp,
+                        trailingContext = trailingContext,
                     )
                     WidgetBlockId.QUOTAS -> {
                         if (showInlineRefresh) {
@@ -299,7 +321,7 @@ private fun WidgetContent(status: AgStatus?, resolved: ResolvedAgTheme, config: 
 
             // A failing collector is a state, not a silent blank card.
             status.antigravityError?.takeIf { it.isNotBlank() }?.let { error ->
-                Spacer(GlanceModifier.height(step.dp))
+                Spacer(GlanceModifier.height(gap.dp))
                 Text(
                     text = fit("Ошибка сбора: $error", 44),
                     style = TextStyle(

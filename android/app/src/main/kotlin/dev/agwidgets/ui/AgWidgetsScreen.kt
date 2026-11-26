@@ -328,7 +328,7 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
                             zcode.isCouponUnknown -> when (zcode.errorKind) {
                                 "auth_expired" -> "Токен истёк — войдите снова"
                                 "network" -> "Нет связи с zcode.z.ai"
-                                "rate_limited" -> "Лимит запросов ZCode (429) — позже"
+                                "rate_limited" -> "Слишком много запросов ZCode — попробуйте позже"
                                 "server_error" -> "Ошибка сервера ZCode"
                                 "api_changed" -> "Схема API ZCode изменилась"
                                 "parse_failed" -> "Не удалось разобрать ответ ZCode"
@@ -432,11 +432,15 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
         if (lastStatus == null && (topic.isNotBlank() || zcodeToken.isNotBlank())) refresh()
     }
 
-    val scrollState = rememberScrollState()
-    val scrimAlpha by animateFloatAsState(
-        targetValue = if (scrollState.value > 0) 1f else 0f,
-        label = "topScrim",
-    )
+    // Dashboard and Settings keep their own offset: scrolling one used to move
+    // the other when going "Назад".
+    val dashboardScrollState = rememberScrollState()
+    val settingsScrollState = rememberScrollState()
+    val scrollState = if (showSettings) settingsScrollState else dashboardScrollState
+    // The pinned bar only becomes a scrim once content slides under it. At
+    // scroll == 0 it is fully transparent, so the Classic grid and the Glass
+    // wash reach the status bar instead of being cut by a hard seam.
+    val barAlpha = (scrollState.value / 48f).coerceIn(0f, 1f)
 
     Box(
         modifier = Modifier
@@ -506,7 +510,7 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(colors.background)
+                    .background(colors.background.copy(alpha = barAlpha * 0.94f))
                     .statusBarsPadding()
                     .padding(horizontal = AgDim.Page, vertical = 12.dp),
             ) {
@@ -524,7 +528,7 @@ internal fun AgWidgetsScreen(themeMode: String, onSelectTheme: (String) -> Unit)
             }
             HorizontalDivider(
                 thickness = 1.dp,
-                color = colors.border.copy(alpha = colors.border.alpha * scrimAlpha),
+                color = colors.border.copy(alpha = colors.border.alpha * barAlpha),
             )
 
             Column(

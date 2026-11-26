@@ -215,10 +215,28 @@ class ThemeResolutionTest {
     @Test
     fun accentInkMeetsAaOnCard() {
         allPalettes().forEach { (label, colors) ->
-            val ratio = colors.accentInk
-                .compositeOver(colors.glow.copy(alpha = 0.16f).compositeOver(colors.card.compositeOver(colors.background)))
-                .ratio(colors.card.compositeOver(colors.background))
-            assertTrue("$label: accentInk on card is $ratio, want >= 4.5", ratio >= 4.5)
+            // The real backdrop of accent-ink: `card` tinted with `glow@16%`.
+            // The old assertion composited the opaque ink over that tint (a
+            // no-op) and then measured against the plain card, so it could never
+            // fail.
+            val tintedCard = colors.glow.copy(alpha = 0.16f)
+                .compositeOver(colors.card.compositeOver(colors.background))
+            val ratio = colors.accentInk.ratio(tintedCard)
+            assertTrue("$label: accentInk on tinted card is $ratio, want >= 4.5", ratio >= 4.5)
+        }
+    }
+
+    @Test
+    fun violetCtaMeetsAaInEveryTheme() {
+        // «Войти в Z.ai» fills with `violet` and labels with
+        // `onAccentFor(violet)` in both AccessCard and ZCodeDashboardCard; the
+        // pair it replaced (`onGlow` on `violet`) measured 3.75:1 in Classic Dark.
+        allPalettes().forEach { (label, colors) ->
+            val ratio = onAccentFor(colors.violet).ratio(colors.violet)
+            assertTrue(
+                "$label: onAccentFor(violet) on violet is $ratio, want >= 4.5",
+                ratio >= 4.5,
+            )
         }
     }
 

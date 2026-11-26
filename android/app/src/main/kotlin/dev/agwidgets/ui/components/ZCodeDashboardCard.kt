@@ -26,6 +26,7 @@ import dev.agwidgets.ui.formatUnits
 import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
+import dev.agwidgets.ui.theme.onAccentFor
 import kotlin.math.roundToInt
 
 /**
@@ -128,7 +129,9 @@ internal fun ZCodeDashboardCard(
                     modifier = Modifier.height(AgDim.MinTouch),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.violet,
-                        contentColor = colors.onGlow,
+                        // `onGlow` is tuned for the cream glow, not for violet:
+                        // Classic Dark measured 3.75:1 with it.
+                        contentColor = onAccentFor(colors.violet),
                     ),
                 ) {
                     Text(

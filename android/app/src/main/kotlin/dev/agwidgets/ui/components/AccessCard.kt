@@ -28,11 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +39,7 @@ import dev.agwidgets.ui.formatUnits
 import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
+import dev.agwidgets.ui.theme.onAccentFor
 
 @Composable
 internal fun AccessCard(
@@ -81,7 +79,10 @@ internal fun AccessCard(
             value = token,
             onValueChange = onTokenChange,
             singleLine = true,
-            visualTransformation = ShortTokenMask,
+            // Standard password masking: identity offset mapping, so the caret,
+            // selection and backspace behave. `ShortTokenMask` used to reveal the
+            // first 1–4 typed characters next to fake bullets.
+            visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 autoCorrectEnabled = false,
                 keyboardType = KeyboardType.Password,
@@ -105,8 +106,9 @@ internal fun AccessCard(
                 shape = RoundedCornerShape(AgDim.ControlRadius),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.violet,
-                    // The semantic label, not a white literal: 7.4:1 in graphite.
-                    contentColor = colors.onGlow,
+                    // Derived from the violet fill, not from `onGlow` (tuned for
+                    // the cream glow): Classic Dark dropped to 3.75:1 before.
+                    contentColor = onAccentFor(colors.violet),
                 ),
             ) {
                 Text(text = if (isPending) "Ожидание…" else "Войти в Z.ai", style = AgType.body)
@@ -174,32 +176,6 @@ internal fun AccessCard(
                 TextButton(onClick = { confirmClear = false }) {
                     Text(text = "Отмена", style = AgType.body, color = colors.secondary)
                 }
-            },
-        )
-    }
-}
-
-/**
- * Fixed-length mask for the JWT: `•••• •••• 8234`.
- *
- * A real JWT is ~200 characters, and a bullet per character is wider than the
- * field, so the old mask was clipped mid-glyph by the border. Collapsing it to
- * a fixed shape keeps the tail verifiable without touching the stored value.
- * The cursor always maps to the end of the raw text: this field is meant to be
- * pasted or replaced, never edited in the middle.
- */
-private object ShortTokenMask : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        val raw = text.text
-        if (raw.isEmpty()) {
-            return TransformedText(AnnotatedString(""), OffsetMapping.Identity)
-        }
-        val masked = AnnotatedString("•••• •••• ${raw.takeLast(4)}")
-        return TransformedText(
-            masked,
-            object : OffsetMapping {
-                override fun originalToTransformed(offset: Int): Int = masked.length
-                override fun transformedToOriginal(offset: Int): Int = raw.length
             },
         )
     }

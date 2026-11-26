@@ -290,8 +290,12 @@ internal fun AgGhostButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    // Destructive actions pass `colors.rose`: a ghost button must not read as
+    // the same affordance as "Отмена".
+    contentColor: Color? = null,
 ) {
     val colors = AgTheme.colors
+    val ink = contentColor ?: colors.accentInk
     val shape = RoundedCornerShape(AgDim.ControlRadius)
     Row(
         modifier = modifier
@@ -306,7 +310,7 @@ internal fun AgGhostButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = colors.accentInk,
+                tint = ink,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(AgDim.ControlGap))
@@ -314,7 +318,7 @@ internal fun AgGhostButton(
         Text(
             text = text,
             style = AgType.body.copy(fontWeight = FontWeight.Medium),
-            color = colors.accentInk,
+            color = ink,
             maxLines = 1,
         )
     }

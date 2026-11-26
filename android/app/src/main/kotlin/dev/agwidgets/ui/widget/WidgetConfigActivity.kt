@@ -12,6 +12,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -39,8 +43,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -53,15 +55,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.GlanceAppWidgetManager
@@ -73,6 +82,7 @@ import dev.agwidgets.ui.components.GlassCard
 import dev.agwidgets.ui.components.UiIcons
 import dev.agwidgets.ui.theme.AGWidgetsTheme
 import dev.agwidgets.ui.theme.AgDim
+import dev.agwidgets.ui.theme.AgThemeMode
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
 import dev.agwidgets.widget.LimitsWidget
@@ -113,7 +123,10 @@ class WidgetConfigActivity : ComponentActivity() {
         setContent {
             var config by remember { mutableStateOf(WidgetConfigStore.get(appContext, appWidgetId)) }
             var saving by remember { mutableStateOf(false) }
-            AGWidgetsTheme(themeMode = config.theme) {
+            // `theme = "system"` inherits the *app* theme in the preview, so the
+            // chrome around it must resolve through the very same helper.
+            val chromeMode = remember(config.theme) { chromeThemeMode(appContext, config) }
+            AGWidgetsTheme(themeMode = chromeMode) {
                 WidgetConfigScreen(
                     config = config,
                     saving = saving,
@@ -285,7 +298,10 @@ private fun PresetsSection(config: WidgetConfig, onChange: (WidgetConfig) -> Uni
             WidgetPresets.all.forEach { preset ->
                 SelectChip(
                     label = preset.label,
-                    selected = preset.config == config,
+                    // Compare normalised configs: a stored order/options pair must
+                    // not un-highlight the preset the user just opened.
+                    selected = WidgetConfigCodec.normalize(preset.config) ==
+                        WidgetConfigCodec.normalize(config),
                     onClick = { onChange(preset.config) },
                 )
             }
@@ -297,6 +313,11 @@ private fun PresetsSection(config: WidgetConfig, onChange: (WidgetConfig) -> Uni
 private fun BlocksSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) {
     ConfigSection(title = "Блоки") {
         config.blocks.forEachIndexed { index, block ->
+            // Flat sections with a hairline: a bordered card inside a GlassCard
+            // is a card in a card.
+            if (index > 0) {
+                HorizontalDivider(thickness = 1.dp, color = AgTheme.colors.border)
+            }
             BlockRow(
                 block = block,
                 title = blockTitle(block.id),
@@ -331,14 +352,10 @@ private fun BlockRow(
     onOption: (String, Boolean) -> Unit,
 ) {
     val colors = AgTheme.colors
-    val shape = RoundedCornerShape(AgDim.ControlRadius)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(colors.surface)
-            .border(1.dp, colors.border, shape)
-            .padding(horizontal = AgDim.CardPadV, vertical = 4.dp),
+            .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
@@ -394,22 +411,24 @@ private fun BlockRow(
             WidgetBlockId.CONTEXT -> OptionRow(
                 label = "Чип /compact",
                 checked = block.options["show_compact_chip"] ?: true,
+                enabled = block.enabled,
                 onCheckedChange = { onOption("show_compact_chip", it) },
             )
             WidgetBlockId.QUOTAS -> {
-                OptionRow("Gemini", block.options["show_gemini"] ?: true) {
+                OptionRow("Gemini", block.options["show_gemini"] ?: true, block.enabled) {
                     onOption("show_gemini", it)
                 }
-                OptionRow("Claude / GPT", block.options["show_3p"] ?: true) {
+                OptionRow("Claude / GPT", block.options["show_3p"] ?: true, block.enabled) {
                     onOption("show_3p", it)
                 }
-                OptionRow("Таймер сброса", block.options["show_countdown"] ?: true) {
+                OptionRow("Таймер сброса", block.options["show_countdown"] ?: true, block.enabled) {
                     onOption("show_countdown", it)
                 }
             }
             WidgetBlockId.ZCODE -> OptionRow(
                 label = "Полоса баланса",
                 checked = block.options["show_balance_bar"] ?: true,
+                enabled = block.enabled,
                 onCheckedChange = { onOption("show_balance_bar", it) },
             )
             WidgetBlockId.HEADER -> Unit
@@ -418,13 +437,24 @@ private fun BlockRow(
 }
 
 @Composable
-private fun OptionRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun OptionRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     val colors = AgTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = AgDim.MinTouch)
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .alpha(if (enabled) 1f else 0.45f)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
             .padding(start = AgDim.ControlGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -440,6 +470,7 @@ private fun OptionRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Switch(
             checked = checked,
             onCheckedChange = null,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = colors.onGlow,
                 checkedTrackColor = colors.glow,
@@ -621,12 +652,28 @@ private fun AccentDot(color: Color?, selected: Boolean, label: String, onClick: 
                     .border(1.dp, colors.border, CircleShape),
             )
             if (color == null) {
-                Text(text = "Авто", fontSize = 7.sp, color = colors.secondary, maxLines = 1)
+                // `7.sp` inside an 18dp circle was unreadable; a vector reset
+                // glyph says "theme default" without sub-11sp type.
+                androidx.compose.material3.Icon(
+                    imageVector = UiIcons.RotateCcw,
+                    contentDescription = null,
+                    tint = colors.secondary,
+                    modifier = Modifier.size(11.dp),
+                )
             }
         }
     }
 }
 
+/**
+ * Slider drawn by hand: a 6dp track, a 20dp round thumb and — critically — a
+ * real **48dp** interaction node.
+ *
+ * The Material `Slider` of this BOM reported 44.1dp in `uiautomator` (and drew a
+ * 16dp pill track with a vertical M3 handle), which is below the HIG minimum and
+ * off-contract for this app. The accessibility node keeps the `SeekBar` class and
+ * a `setProgress` action, so TalkBack still treats it as a range control.
+ */
 @Composable
 private fun LabeledSlider(
     title: String,
@@ -636,6 +683,12 @@ private fun LabeledSlider(
     onValueChange: (Float) -> Unit,
 ) {
     val colors = AgTheme.colors
+    val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
+    val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
+    val thumbSize = 20.dp
+    val trackHeight = 6.dp
+    var widthPx by remember { mutableStateOf(0f) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -651,24 +704,68 @@ private fun LabeledSlider(
                 maxLines = 1,
             )
         }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = valueRange,
-            // No discrete dots: the step is rounded in onValueChange, and 19
-            // white ticks used to be the loudest thing in the card.
-            steps = 0,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(AgDim.MinTouch),
-            colors = SliderDefaults.colors(
-                thumbColor = colors.glow,
-                activeTrackColor = colors.glow,
-                inactiveTrackColor = colors.track,
-                activeTickColor = Color.Transparent,
-                inactiveTickColor = Color.Transparent,
-            ),
-        )
+                .height(AgDim.MinTouch)
+                .onSizeChanged { widthPx = it.width.toFloat() }
+                .pointerInput(span, valueRange.start) {
+                    val thumbPx = thumbSize.toPx()
+                    fun emit(x: Float) {
+                        val usable = (widthPx - thumbPx).coerceAtLeast(1f)
+                        val next = ((x - thumbPx / 2f) / usable).coerceIn(0f, 1f)
+                        onValueChange(valueRange.start + next * span)
+                    }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        emit(down.position.x)
+                        drag(down.id) { change ->
+                            change.consume()
+                            emit(change.position.x)
+                        }
+                    }
+                }
+                .semantics {
+                    contentDescription = title
+                    progressBarRangeInfo = ProgressBarRangeInfo(value, valueRange, 0)
+                    setProgress { target ->
+                        onValueChange(
+                            target.coerceIn(valueRange.start, valueRange.endInclusive),
+                        )
+                        true
+                    }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(colors.track),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(colors.glow),
+            )
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (fraction * (widthPx - thumbSize.toPx())).roundToInt().coerceAtLeast(0),
+                            0,
+                        )
+                    }
+                    .size(thumbSize)
+                    .clip(CircleShape)
+                    .background(colors.glow)
+                    .border(2.dp, colors.card, CircleShape),
+            )
+        }
     }
 }
 
@@ -683,6 +780,7 @@ private fun ResetAction(onReset: () -> Unit) {
             text = "Сбросить настройки",
             onClick = { confirmReset = true },
             modifier = Modifier.fillMaxWidth(),
+            contentColor = colors.rose,
         )
     }
     if (confirmReset) {
@@ -790,6 +888,8 @@ private fun JsonSection(config: WidgetConfig, onChange: (WidgetConfig) -> Unit) 
                         singleLine = false,
                         maxLines = 12,
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = colors.text,
+                            unfocusedTextColor = colors.text,
                             focusedBorderColor = colors.glow,
                             unfocusedBorderColor = colors.fieldBorder,
                             focusedLabelColor = colors.accentInk,
@@ -876,6 +976,22 @@ private fun blockTitle(id: WidgetBlockId): String = when (id) {
     WidgetBlockId.CONTEXT -> "Контекст"
     WidgetBlockId.QUOTAS -> "Лимиты"
     WidgetBlockId.ZCODE -> "ZCode"
+}
+
+/**
+ * Mode for the builder chrome: the very palette the pinned preview resolves to.
+ *
+ * `WidgetStore.resolveWidgetTheme` already turned `system` into a concrete
+ * palette; mapping the concrete id back to a selectable mode keeps the chrome
+ * and the preview on one theme even when the app itself runs OLED.
+ */
+private fun chromeThemeMode(context: android.content.Context, config: WidgetConfig): String {
+    val resolved = WidgetConfigStore.resolveWidgetTheme(context, config)
+    return when (resolved.id) {
+        "glass_dark", "glass_light" -> AgThemeMode.GLASS
+        "classic_dark", "classic_light" -> AgThemeMode.CLASSIC
+        else -> resolved.id
+    }
 }
 
 private fun themeLabel(theme: String): String = when (theme) {
