@@ -118,8 +118,8 @@ body {
   padding: var(--space-3) 10px var(--space-3) var(--space-4);
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--card-border) transparent;
+  /* Keep `scrollbar-width`/`scrollbar-color` unset so Chromium honors the
+     `::-webkit-scrollbar*` rules below and suppresses Windows ▲/▼ steppers (D-08). */
   scrollbar-gutter: stable;
 }
 

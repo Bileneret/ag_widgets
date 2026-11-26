@@ -2086,11 +2086,13 @@ html:not([data-theme^="classic"])[data-density="spacious"] .card {
   padding: var(--space-4) var(--space-5);
 }
 
-/* Full: scrollable card rail with a thin, quiet scrollbar. */
+/* Full: scrollable card rail with a thin, quiet scrollbar.
+   Use `scrollbar-width: auto` (without `scrollbar-color`) so Chromium keeps
+   `::-webkit-scrollbar*` and `::-webkit-scrollbar-button { display: none }`
+   active instead of drawing native Windows ▲/▼ steppers (D-08). */
 html[data-mode="full"] #widget-cards {
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--card-border) transparent;
+  scrollbar-width: auto;
 }
 
 html[data-mode="full"] #widget-cards::-webkit-scrollbar {

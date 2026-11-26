@@ -52,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -646,19 +647,19 @@ private fun AccentDot(color: Color?, selected: Boolean, label: String, onClick: 
         ) {
             Box(
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(if (color == null) 20.dp else 18.dp)
                     .clip(CircleShape)
                     .background(color ?: colors.surface)
                     .border(1.dp, colors.border, CircleShape),
             )
             if (color == null) {
-                // `7.sp` inside an 18dp circle was unreadable; a vector reset
+                // `7.sp` inside an 18dp circle was unreadable; a crisp vector reset
                 // glyph says "theme default" without sub-11sp type.
                 androidx.compose.material3.Icon(
                     imageVector = UiIcons.RotateCcw,
                     contentDescription = null,
                     tint = colors.secondary,
-                    modifier = Modifier.size(11.dp),
+                    modifier = Modifier.size(14.dp),
                 )
             }
         }
@@ -688,6 +689,9 @@ private fun LabeledSlider(
     val thumbSize = 20.dp
     val trackHeight = 6.dp
     var widthPx by remember { mutableStateOf(0f) }
+    // `pointerInput` keeps its initial coroutine across recompositions; wrap the
+    // callback so dragging a slider never overwrites other edits with a stale config.
+    val latestOnValueChange by rememberUpdatedState(onValueChange)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -714,7 +718,7 @@ private fun LabeledSlider(
                     fun emit(x: Float) {
                         val usable = (widthPx - thumbPx).coerceAtLeast(1f)
                         val next = ((x - thumbPx / 2f) / usable).coerceIn(0f, 1f)
-                        onValueChange(valueRange.start + next * span)
+                        latestOnValueChange(valueRange.start + next * span)
                     }
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -730,7 +734,7 @@ private fun LabeledSlider(
                     contentDescription = title
                     progressBarRangeInfo = ProgressBarRangeInfo(value, valueRange, 0)
                     setProgress { target ->
-                        onValueChange(
+                        latestOnValueChange(
                             target.coerceIn(valueRange.start, valueRange.endInclusive),
                         )
                         true

@@ -710,6 +710,8 @@ private fun PreviewZCode(
                 modifier = Modifier.weight(1f),
                 height = 4.dp,
             )
+        } else if (showInlineRefresh) {
+            Spacer(Modifier.weight(1f))
         }
         if (showInlineRefresh) PreviewRefreshIcon(colors)
     }
