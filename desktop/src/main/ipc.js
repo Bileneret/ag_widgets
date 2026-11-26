@@ -5,6 +5,7 @@ const { APP_DIR } = require('./paths');
 const { readAllState } = require('./storage');
 const collector = require('./collector');
 const zcodeAuth = require('./zcode-auth');
+const pairing = require('./pairing');
 const windowApi = require('./window');
 const appearance = require('./appearance');
 const { logError } = require('./logger');
@@ -290,6 +291,20 @@ function registerIpc() {
       refreshMenu();
       return { ok: true, snapshot };
     }),
+  );
+
+  // --- Pairing (Sync tab): ntfy topic/server, E2E key, agw://pair URI ------
+  // Electron never touches secrets.json: both channels delegate to
+  // collector/pairing.py, which owns the DPAPI-encrypted values.
+
+  ipcMain.handle(
+    'agw:pairing-get',
+    fromTrustedWindow(() => pairing.getPairingSnapshot()),
+  );
+
+  ipcMain.handle(
+    'agw:pairing-update',
+    fromTrustedWindow((_event, patch) => pairing.updatePairing(patch)),
   );
 }
 
