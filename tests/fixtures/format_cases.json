@@ -1,0 +1,102 @@
+{
+  "window_cases": [
+    { "input": 512, "expected": "512" },
+    { "input": 131072, "expected": "128K" },
+    { "input": 524288, "expected": "512K" },
+    { "input": 1000000, "expected": "1M" },
+    { "input": 1048576, "expected": "1M" },
+    { "input": 2097152, "expected": "2M" }
+  ],
+  "token_cases": [
+    { "input": 0, "expected": "0" },
+    { "input": 850, "expected": "850" },
+    { "input": 12345, "expected": "12K" },
+    { "input": 12600, "expected": "13K" },
+    { "input": 999600, "expected": "1M" },
+    { "input": 1200000, "expected": "1.2M" },
+    { "input": 1260000, "expected": "1.3M" }
+  ],
+  "context_level_cases": [
+    {
+      "tokens": 0,
+      "window": 524288,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": 0.0,
+      "expected_level": "green"
+    },
+    {
+      "tokens": 131072,
+      "window": 524288,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": 25.0,
+      "expected_level": "green"
+    },
+    {
+      "tokens": 262144,
+      "window": 524288,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": 50.0,
+      "expected_level": "yellow"
+    },
+    {
+      "tokens": 393216,
+      "window": 524288,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": 75.0,
+      "expected_level": "red"
+    },
+    {
+      "tokens": 524288,
+      "window": 524288,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": 100.0,
+      "expected_level": "red"
+    },
+    {
+      "tokens": 300000,
+      "window": 1048576,
+      "yellow_pct": 20,
+      "red_pct": 30,
+      "expected_pct": 28.61,
+      "expected_level": "yellow"
+    },
+    {
+      "tokens": 400000,
+      "window": 1048576,
+      "yellow_pct": 20,
+      "red_pct": 30,
+      "expected_pct": 38.15,
+      "expected_level": "red"
+    },
+    {
+      "tokens": 0,
+      "window": null,
+      "yellow_pct": 40,
+      "red_pct": 65,
+      "expected_pct": null,
+      "expected_level": "unknown"
+    }
+  ],
+  "oauth_url_cases": [
+    { "url": "https://z.ai/oauth/authorize?flow=abc", "trusted": true },
+    { "url": "https://zcode.z.ai/api/v1/oauth/cli/authorize?x=1", "trusted": true },
+    { "url": "https://sub.deep.z.ai/path", "trusted": true },
+    { "url": "https://z.ai:443/path", "trusted": true },
+    { "url": "  https://z.ai/oauth/authorize?flow=abc  ", "trusted": true },
+    { "url": "HTTPS://Z.AI/path", "trusted": true },
+    { "url": "http://z.ai/path", "trusted": false },
+    { "url": "https://evil.com/z.ai", "trusted": false },
+    { "url": "https://z.ai.evil.com/path", "trusted": false },
+    { "url": "https://notz.ai/path", "trusted": false },
+    { "url": "https://user:pass@z.ai/path", "trusted": false },
+    { "url": "https://z.ai:8443/path", "trusted": false },
+    { "url": "ftp://z.ai/path", "trusted": false },
+    { "url": "javascript:alert(1)", "trusted": false },
+    { "url": "", "trusted": false }
+  ]
+}

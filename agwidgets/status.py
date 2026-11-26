@@ -300,6 +300,19 @@ def run_once(
     return result
 
 
+def _write_text(text: str) -> None:
+    """Print text as UTF-8 even on legacy Windows code pages."""
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is not None:
+        try:
+            buffer.write((text + "\n").encode("utf-8", errors="replace"))
+            buffer.flush()
+            return
+        except (AttributeError, OSError, ValueError):
+            pass
+    print(text)
+
+
 def _write_result(result: dict[str, Any]) -> None:
     """Print the JSON result as UTF-8 even on legacy Windows code pages."""
     text = json.dumps(result, ensure_ascii=False) + "\n"
@@ -323,18 +336,39 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--doctor",
         action="store_true",
-        help="Reserved for the installer diagnostics (PR #4)",
+        help="Run read-only installation diagnostics instead of collecting status.",
+    )
+    parser.add_argument(
+        "--doctor-json",
+        action="store_true",
+        help="Print the diagnostics as anonymized JSON (implies --doctor).",
+    )
+    parser.add_argument(
+        "--online",
+        action="store_true",
+        help="Let the diagnostics probe ntfy.sh and the ZCode API.",
     )
     args = parser.parse_args(argv)
 
-    if args.doctor:
-        result: dict[str, Any] = {"doctor": "not_implemented"}
-    else:
-        result = run_once(
-            force_publish=args.force,
-            dry_run=args.dry_run,
-            show_topic=args.show_topic,
-        )
+    if args.online and not (args.doctor or args.doctor_json):
+        parser.error("--online requires --doctor or --doctor-json")
+
+    if args.doctor or args.doctor_json:
+        from . import doctor  # Local import keeps the normal collector start-up light.
+
+        checks = doctor.run_doctor(network=args.online)
+        if args.doctor_json:
+            _write_text(json.dumps(doctor.build_report(checks), ensure_ascii=False, indent=2))
+        else:
+            _write_text(doctor.format_report(checks))
+        failed = any(check.get("status") == "fail" for check in checks)
+        raise SystemExit(1 if failed else 0)
+
+    result = run_once(
+        force_publish=args.force,
+        dry_run=args.dry_run,
+        show_topic=args.show_topic,
+    )
 
     _write_result(result)
     if result.get("status_written") is False:

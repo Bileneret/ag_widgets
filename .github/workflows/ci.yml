@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-tests:
+    name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run Python unit tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  desktop-tests:
+    name: Desktop (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run desktop unit tests
+        run: node --test desktop/test/*.test.js
+      - name: Check desktop JavaScript syntax
+        run: node desktop/scripts/check-syntax.js
+
+  android-tests:
+    name: Android (JDK 17)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Install Android platform 37 (best effort)
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0" "platforms;android-37" > /dev/null 2>&1 || true
+      - name: Run Android unit tests and build both flavors
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testFullDebugUnitTest :app:testContextDebugUnitTest \
+            :app:assembleFullDebug :app:assembleContextDebug \
+            -Pcommunity=true --console=plain

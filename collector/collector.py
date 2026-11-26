@@ -2,6 +2,10 @@
 
 Usage:
     python collector/collector.py [--force] [--dry-run] [--show-topic]
+    python collector/collector.py --doctor [--doctor-json] [--online]
+
+``--doctor`` runs read-only diagnostics and exits with ``1`` when a check
+fails; it never creates runtime files or prints stored secrets.
 """
 
 from __future__ import annotations

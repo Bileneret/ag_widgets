@@ -86,8 +86,8 @@ Runtime data never lives in the repository:
 
 ```text
 %LOCALAPPDATA%\ag-widgets\
-  config.json         runtime configuration (topic, thresholds, overrides)
-  secrets.json        ZCode token and device id
+  config.json         runtime configuration (thresholds, model windows, python_path)
+  secrets.json        ZCode token, ntfy topic (DPAPI `dpapi:v1:` on Windows) and device id
   state\              context.json, status.json, agy_status.json, learned windows
 ```
 
@@ -121,14 +121,20 @@ The installer:
 6. runs the collector once to create your private ntfy topic;
 7. creates **AG Widgets** shortcuts on the Desktop and in the Start Menu.
 
+Before changing the Antigravity integration, the installer backs up the existing `~/.gemini/config/*` files to `%LOCALAPPDATA%\ag-widgets\backups\install-<timestamp>\`.
+
 Useful flags:
 
 ```powershell
 .\install.ps1 -PythonPath "C:\Path\To\python.exe"   # explicit interpreter
 .\install.ps1 -NoShortcut                           # skip shortcuts
+.\install.ps1 -DryRun                               # print the steps, write nothing
+.\install.ps1 -Uninstall                            # remove only ag-widgets entries
 ```
 
-> The ntfy topic in `config.json` is a secret. Anyone who knows it can read your published numbers. Do not commit or share it.
+`-Uninstall` removes only the entries ag-widgets registered and leaves `%LOCALAPPDATA%\ag-widgets` untouched.
+
+> The ntfy topic is a secret. Anyone who knows it can read your published numbers. The topic and the ZCode token live in `secrets.json` — on Windows both are encrypted with DPAPI (`dpapi:v1:`); on Android they sit in private `SharedPreferences` under `AndroidKeyStore` AES-256-GCM (`ks:v1:`). Do not commit or share them.
 
 ### Launch
 
@@ -148,7 +154,8 @@ The easiest path is the **ВОЙТИ В Z.AI** button in card `03 / ACCESS`. It 
 ```powershell
 python collector\zcode_auth.py            # browser sign-in
 python collector\zcode_auth.py --status   # test the saved token
-python collector\zcode_auth.py --set-token <jwt>
+python collector\zcode_auth.py --set-token-stdin   # paste a JWT via stdin (keeps it out of argv)
+python collector\zcode_auth.py --clear-token       # forget the saved token
 ```
 
 Without a token the card honestly shows "not connected". There is no UI-scraping fallback: voucher state comes only from the ZCode API.
@@ -171,6 +178,18 @@ Without a token the card honestly shows "not connected". There is no UI-scraping
 - `context_thresholds` — percentage of the real window where the card turns yellow/red.
 
 The collector also stores `python_path` here during installation so the widget can run refreshes.
+
+### Diagnostics
+
+Read-only install checks, safe to run at any time (`--doctor` exits with `1` when a check fails):
+
+```powershell
+python collector\collector.py --doctor          # human-readable checks
+python collector\collector.py --doctor-json     # anonymized JSON to paste into an issue
+python collector\collector.py --doctor --online # also probe ntfy.sh and the ZCode API
+```
+
+`--doctor-json` never prints the token or the topic. To print the private ntfy topic for pairing the phone, run `python collector\collector.py --show-topic`. For credentials, `python collector\zcode_auth.py --set-token-stdin` reads a JWT from stdin (it stays out of shell history and process lists), and `--clear-token` removes the saved token.
 
 ### Design preview without Electron
 
@@ -270,7 +289,7 @@ android/app/build/outputs/apk/context/release/app-context-release.apk
    - **With a PC**: paste the `ntfy_topic` printed by the desktop installer.
 3. Tap **Обновить**, then **Добавить виджет на экран**.
 
-The app refreshes every 15 minutes (WorkManager minimum). Manual refresh: the button in the app, **⟳** in the context card, or a tap on the widget. After switching chats on the PC, the desktop publishes the new active chat immediately; press **⟳** on the phone to pick it up.
+The app refreshes every 15 minutes (WorkManager minimum). Manual refresh: the button in the app or **⟳** in the context card. A tap on the widget opens the app; the **⟳** button on the widget refreshes the data manually. After switching chats on the PC, the desktop publishes the new active chat immediately; press **⟳** on the phone to pick it up.
 
 > Application ids are `dev.agwidgets` (AG Widgets) and `dev.agwidgets.context` (AG Context). The two builds can be installed side by side. An older private build under `dev.dmitr.agwidgets` must be uninstalled first.
 
@@ -281,9 +300,9 @@ The header **☀/☾** button switches light/dark mode; the 4×2 widget follows 
 ## Privacy
 
 - ntfy receives quota numbers, token counts, model id, context level, conversation UUID, voucher flag, and a short voucher label (≤100 characters). No email, prompts, chat/project titles, or tokens.
-- `ntfy_topic` is 96 random bits and lives only in `%LOCALAPPDATA%\ag-widgets\config.json`.
+- `ntfy_topic` is 96 random bits and lives in `secrets.json` together with the ZCode token. On Windows both values are DPAPI ciphertexts (`dpapi:v1:`); on Android they are private `SharedPreferences` encrypted by `AndroidKeyStore` AES-256-GCM (`ks:v1:`).
 - The ZCode token is stored locally in `secrets.json` (desktop) or private SharedPreferences (Android).
-- Android uses `allowBackup="false"`, so preferences do not go to cloud backup.
+- Android uses `allowBackup="false"` and `dataExtractionRules`, so preferences do not go to cloud backup or device transfer.
 - The community APKs contain no topic or token. A personal APK embeds only the topic from `local.properties`.
 - **AG Context** has no ZCode client, OAuth flow, token storage, or ZCode network calls.
 
@@ -295,6 +314,10 @@ The header **☀/☾** button switches light/dark mode; the 4×2 widget follows 
 # Python: model windows, context thresholds, ZCode parsing, change detection
 python -m unittest discover -s tests -p "test_*.py" -v
 
+# Desktop: Node built-in test runner and a syntax pass (no npm install needed)
+node --test desktop/test/*.test.js
+node desktop/scripts/check-syntax.js
+
 # Android: status parsing and PC/phone merge, both flavors
 cd android
 .\gradlew.bat :app:testFullDebugUnitTest :app:testContextDebugUnitTest
@@ -303,6 +326,8 @@ cd android
 .\gradlew.bat :app:assembleFullRelease :app:assembleContextRelease `
   -Pcommunity=true --no-configuration-cache
 ```
+
+GitHub Actions runs all three suites on every push to `main` and on pull requests (`.github/workflows/ci.yml`).
 
 ---
 
