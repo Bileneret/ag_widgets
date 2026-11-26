@@ -16,4 +16,8 @@ Features:
 - Android 4×2 Glance widget with light/dark themes.
 - Local reset reminders through WorkManager.
 - Private ntfy channel between the desktop collector and the phone.
+- Secrets encrypted at rest: Windows DPAPI for the desktop, AndroidKeyStore AES-256-GCM for the phone.
+- Honest tri-state voucher reporting (`visible` / `absent` / `unknown`) and the status schema v2.
+- Reversible installer (`-DryRun`, `-Uninstall`) and read-only `--doctor` diagnostics.
+- CI for Python, desktop, and Android tests, plus shared golden fixtures.
 - Signed Android release APKs; Windows remains source-only.
