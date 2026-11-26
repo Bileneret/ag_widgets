@@ -617,6 +617,59 @@ class ZCodeCacheTests(_IsolatedLocalAppData):
             self.assertTrue(cached["network_error"])
 
     @mock.patch.object(zcode, "query_zcode_api")
+    def test_rate_limited_cache_blocks_forced_refresh(self, query):
+        self._write_secrets("token-1")
+        limited = _api_result(
+            coupon_state="unknown",
+            coupon_visible=None,
+            remaining_units=None,
+            total_units=None,
+            error_kind="rate_limited",
+        )
+        now_ts = datetime.now(timezone.utc).timestamp()
+        paths.write_json(
+            self.cache_path,
+            {
+                "ts": now_ts - 30,
+                "seq": 1,
+                "token_fingerprint": _token_fingerprint("token-1"),
+                "result": limited,
+            },
+        )
+
+        result = zcode.fetch_cached_status(self.state_dir, force=True)
+
+        query.assert_not_called()
+        self.assertEqual(result["error_kind"], "rate_limited")
+
+    @mock.patch.object(zcode, "query_zcode_api")
+    def test_rate_limited_cache_expires_after_cooldown(self, query):
+        self._write_secrets("token-1")
+        limited = _api_result(
+            coupon_state="unknown",
+            coupon_visible=None,
+            remaining_units=None,
+            total_units=None,
+            error_kind="rate_limited",
+        )
+        now_ts = datetime.now(timezone.utc).timestamp()
+        paths.write_json(
+            self.cache_path,
+            {
+                "ts": now_ts - zcode.ZCODE_RATE_LIMIT_RETRY_SEC - 1,
+                "seq": 1,
+                "token_fingerprint": _token_fingerprint("token-1"),
+                "result": limited,
+            },
+        )
+        query.return_value = _api_result(remaining_units=9)
+
+        result = zcode.fetch_cached_status(self.state_dir, force=True)
+
+        query.assert_called_once()
+        self.assertEqual(result["remaining_units"], 9)
+
+    @mock.patch.object(zcode, "query_zcode_api")
     def test_force_ignores_fresh_cache(self, query):
         self._write_secrets("token-1")
         paths.write_json(

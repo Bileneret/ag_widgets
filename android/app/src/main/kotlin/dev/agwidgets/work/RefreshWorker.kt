@@ -59,7 +59,7 @@ class RefreshWorker(
         // 2. Direct ZCode API check (works autonomously on phone even when laptop is off)
         if (BuildConfig.ZCODE_ENABLED) {
             val zcodeToken = ZCodeStore.getToken(applicationContext)
-            if (zcodeToken.isNotBlank()) {
+            if (zcodeToken.isNotBlank() && !ZCodeStore.shouldBackoffRateLimit(applicationContext)) {
                 val deviceMid = ZCodeStore.getOrCreateDeviceMid(applicationContext)
                 val seq = ZCodeStore.nextSeq(applicationContext)
                 val previous = ZCodeStore.getDirect(applicationContext)
@@ -107,7 +107,7 @@ class RefreshWorker(
     companion object {
         private const val PERIODIC_WORK_NAME = "agw_periodic_refresh"
         private const val IMMEDIATE_WORK_NAME = "agw_immediate_refresh"
-        private val RETRYABLE_ZCODE_ERRORS = setOf("network", "rate_limited", "server_error")
+        private val RETRYABLE_ZCODE_ERRORS = setOf("network", "server_error")
 
         fun schedulePeriodic(context: Context) {
             val constraints = Constraints.Builder()

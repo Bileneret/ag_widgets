@@ -3,6 +3,9 @@ package dev.agwidgets.data
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONObject
+import java.time.Duration
+import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.UUID
 
 /** ZCode-only storage: encrypted token, device id, direct cache, and poll sequence. */
@@ -90,5 +93,31 @@ object ZCodeStore {
         val current = preferences.getInt(KEY_SEQ, 0)
         preferences.edit().putInt(KEY_SEQ, (current + 1) and 0x7FFFFFFF).apply()
         current
+    }
+
+    /**
+     * After a ZCode 429, skip network calls for a few minutes instead of
+     * hammering the API from periodic work, widget taps, and manual refreshes.
+     * A manual refresh after the cooldown still goes through.
+     */
+    fun shouldBackoffRateLimit(context: Context, cooldownSec: Long = 300L): Boolean {
+        val status = getDirect(context) ?: return false
+        if (status.errorKind != "rate_limited") return false
+        val checked = parseCheckedAt(status.checkedAt) ?: return false
+        val age = Duration.between(checked, Instant.now()).seconds
+        return age >= 0 && age < cooldownSec
+    }
+
+    private fun parseCheckedAt(iso: String?): Instant? {
+        if (iso.isNullOrBlank()) return null
+        return try {
+            OffsetDateTime.parse(iso).toInstant()
+        } catch (_: Exception) {
+            try {
+                Instant.parse(iso)
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 }

@@ -19,5 +19,6 @@ Features:
 - Secrets encrypted at rest: Windows DPAPI for the desktop, AndroidKeyStore AES-256-GCM for the phone.
 - Honest tri-state voucher reporting (`visible` / `absent` / `unknown`) and the status schema v2.
 - Reversible installer (`-DryRun`, `-Uninstall`) and read-only `--doctor` diagnostics.
+- Back off for five minutes after a ZCode HTTP 429 instead of retrying in a loop.
 - CI for Python, desktop, and Android tests, plus shared golden fixtures.
 - Signed Android release APKs; Windows remains source-only.

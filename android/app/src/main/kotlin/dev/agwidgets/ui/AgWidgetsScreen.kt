@@ -289,7 +289,8 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
             }
 
             val token = if (BuildConfig.ZCODE_ENABLED) ZCodeStore.getToken(context) else ""
-            if (token.isNotBlank()) {
+            val rateLimited = token.isNotBlank() && ZCodeStore.shouldBackoffRateLimit(context)
+            if (token.isNotBlank() && !rateLimited) {
                 val deviceMid = ZCodeStore.getOrCreateDeviceMid(context)
                 val seq = ZCodeStore.nextSeq(context)
                 val previousZCode = ZCodeStore.getDirect(context)
@@ -304,7 +305,7 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                             zcode.isCouponUnknown -> when (zcode.errorKind) {
                                 "auth_expired" -> "Токен истёк — войдите снова"
                                 "network" -> "Нет связи с ZCode"
-                                "rate_limited" -> "Лимит запросов ZCode (429) — позже"
+                                "rate_limited" -> "ZCode временно ограничил запросы (429) — подождите несколько минут"
                                 "server_error" -> "Ошибка сервера ZCode"
                                 "api_changed" -> "Схема API ZCode изменилась"
                                 "parse_failed" -> "Не удалось разобрать ответ ZCode"
@@ -329,6 +330,9 @@ internal fun AgWidgetsScreen(darkTheme: Boolean, onToggleTheme: () -> Unit) {
                 )
             }
 
+            if (rateLimited) {
+                messages.add("ZCode: лимит запросов (429) — подождите")
+            }
             lastStatus = StatusStore.getMergedStatus(context)
             lastError = StatusStore.getLastError(context)
             nowMs = System.currentTimeMillis()

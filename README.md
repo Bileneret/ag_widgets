@@ -337,7 +337,7 @@ GitHub Actions runs all three suites on every push to `main` and on pull request
 - **Acrylic** requires Windows 11 22H2+. Windows 10 falls back to a translucent background without the system blur.
 - The Android widget cannot blur wallpapers system-wide; it uses a glass imitation (gradient, border, highlight).
 - **WorkManager** is best-effort: 15-minute minimum, and battery optimizations can delay it. Reset reminders are scheduled locally but are not guaranteed to the second.
-- **ZCode API** is an open protocol used by ZCode; endpoints can change. There is no scraping fallback.
+- **ZCode API** is an open protocol used by ZCode; endpoints can change. There is no scraping fallback. If ZCode returns HTTP 429, both clients back off for a few minutes instead of retrying in a loop.
 - Model windows can change. The CLI value is picked up automatically; the built-in table is only a fallback.
 
 ---

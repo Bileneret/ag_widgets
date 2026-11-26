@@ -19,6 +19,7 @@ ZCODE_ORIGIN = "https://zcode.z.ai"
 ZCODE_APP_VERSION = "3.5.0"
 ZCODE_POLL_INTERVAL_SEC = 600  # 10 minutes
 ZCODE_ERROR_RETRY_SEC = 60  # retry failed polls sooner than a healthy one
+ZCODE_RATE_LIMIT_RETRY_SEC = 300  # do not hammer the API after a 429
 MAX_BODY_BYTES = 1_048_576  # 1 MiB cap on API response bodies
 
 # Most specific failure first: it wins when both requests disagree.
@@ -515,14 +516,20 @@ def fetch_cached_status(state_dir: Path, force: bool = False) -> dict[str, Any] 
         except (TypeError, ValueError):
             cached_ts = 0.0
         cached_result = cached.get("result")
-        if isinstance(cached_result, dict) and not force:
-            ttl = (
-                ZCODE_ERROR_RETRY_SEC
-                if _is_failed_result(cached_result)
-                else ZCODE_POLL_INTERVAL_SEC
-            )
-            if 0 <= now_ts - cached_ts < ttl:
+        if isinstance(cached_result, dict):
+            age = now_ts - cached_ts
+            # A 429 is a hard signal even for an explicit refresh: back off for
+            # five minutes instead of letting the desktop refresh button retry.
+            if cached_result.get("error_kind") == "rate_limited" and 0 <= age < ZCODE_RATE_LIMIT_RETRY_SEC:
                 return cached_result
+            if not force:
+                ttl = (
+                    ZCODE_ERROR_RETRY_SEC
+                    if _is_failed_result(cached_result)
+                    else ZCODE_POLL_INTERVAL_SEC
+                )
+                if 0 <= age < ttl:
+                    return cached_result
 
     result = query_zcode_api(token, device_mid, seq=seq)
     paths.write_json(
