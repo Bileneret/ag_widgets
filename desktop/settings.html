@@ -7,6 +7,7 @@
   <title>Настройки — AG Widgets</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="settings.css" />
+  <script src="src/renderer/theme-math.js" defer></script>
   <script src="src/renderer/settings.js" defer></script>
 </head>
 <body>
@@ -45,7 +46,7 @@
                 <span class="swatch-card"></span>
                 <span class="swatch-accent"></span>
               </span>
-              <span class="theme-label">Авто <small>(система)</small></span>
+              <span class="theme-label" title="Системная тема">Авто</span>
             </button>
             <button type="button" class="theme-option" data-theme-value="graphite" aria-pressed="false">
               <span class="theme-swatch" aria-hidden="true">
@@ -96,9 +97,8 @@
         <section class="panel" aria-labelledby="accent-heading">
           <div class="panel-head">
             <h2 id="accent-heading" class="panel-title">Акцентный цвет</h2>
-            <output id="accent-value" class="value-badge" for="accent-hex">авто</output>
+            <output id="accent-value" class="value-text" for="accent-hex">авто</output>
           </div>
-
 
           <div class="accent-swatches" role="group" aria-label="Быстрый выбор акцента">
             <button class="swatch" type="button" data-accent="#60a5fa" style="--swatch:#60a5fa" aria-label="Синий #60a5fa" aria-pressed="false"></button>
@@ -119,19 +119,26 @@
         <section class="panel" aria-labelledby="font-heading">
           <div class="panel-head">
             <h2 id="font-heading" class="panel-title">Масштаб шрифта</h2>
-            <output id="font-scale-value" class="value-badge" for="font-scale">100%</output>
+            <div class="value-row">
+              <output id="font-scale-value" class="value-text" for="font-scale">100%</output>
+              <button id="font-scale-reset" class="icon-reset" type="button" title="Сбросить к 100%" aria-label="Сбросить масштаб к 100%">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 3.2-6.9"></path>
+                  <path d="M3 4v5h5"></path>
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="range-row">
             <input id="font-scale" class="range" type="range" min="85" max="140" step="5" value="100"
               aria-labelledby="font-heading" aria-describedby="font-scale-value" aria-valuetext="100%" />
-            <button id="font-scale-reset" class="ghost-btn" type="button" title="Вернуть масштаб 100%">100%</button>
           </div>
         </section>
 
         <section class="panel" aria-labelledby="opacity-heading">
           <div class="panel-head">
             <h2 id="opacity-heading" class="panel-title">Прозрачность окна</h2>
-            <output id="opacity-value" class="value-badge" for="opacity">100%</output>
+            <output id="opacity-value" class="value-text" for="opacity">100%</output>
           </div>
           <div class="range-row">
             <input id="opacity" class="range" type="range" min="60" max="100" step="5" value="100"
@@ -142,7 +149,7 @@
         <section class="panel" aria-labelledby="radius-heading">
           <div class="panel-head">
             <h2 id="radius-heading" class="panel-title">Скругление углов</h2>
-            <output id="corner-radius-value" class="value-badge" for="corner-radius">12px</output>
+            <output id="corner-radius-value" class="value-text" for="corner-radius">12px</output>
           </div>
           <div class="range-row">
             <input id="corner-radius" class="range" type="range" min="0" max="24" step="2" value="12"
@@ -151,9 +158,7 @@
         </section>
 
         <section class="panel" aria-labelledby="density-heading">
-          <div class="panel-head">
-            <h2 id="density-heading" class="panel-title">Плотность</h2>
-          </div>
+          <h2 id="density-heading" class="panel-title">Плотность</h2>
           <div class="segmented segmented-wide" role="group" aria-labelledby="density-heading">
             <button type="button" class="segment" data-density="compact" aria-pressed="false">Компактно</button>
             <button type="button" class="segment" data-density="comfortable" aria-pressed="false">Обычно</button>
@@ -210,8 +215,12 @@
               <div class="block-head">
                 <h3 class="block-title">Контекст</h3>
                 <div class="block-actions">
-                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «Контекст»">↑</button>
-                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «Контекст»">↓</button>
+                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «Контекст»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                  </button>
+                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «Контекст»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M19 12l-7 7-7-7"></path></svg>
+                  </button>
                   <button class="switch" type="button" role="switch" data-block-toggle="context_hero" aria-checked="true" aria-label="Показывать блок «Контекст»"></button>
                 </div>
               </div>
@@ -235,8 +244,12 @@
               <div class="block-head">
                 <h3 class="block-title">Лимиты</h3>
                 <div class="block-actions">
-                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «Лимиты»">↑</button>
-                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «Лимиты»">↓</button>
+                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «Лимиты»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                  </button>
+                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «Лимиты»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M19 12l-7 7-7-7"></path></svg>
+                  </button>
                   <button class="switch" type="button" role="switch" data-block-toggle="quotas_grid" aria-checked="true" aria-label="Показывать блок «Лимиты»"></button>
                 </div>
               </div>
@@ -260,8 +273,12 @@
               <div class="block-head">
                 <h3 class="block-title">ZCode</h3>
                 <div class="block-actions">
-                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «ZCode»">↑</button>
-                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «ZCode»">↓</button>
+                  <button class="block-move block-up" type="button" data-move="-1" aria-label="Поднять блок «ZCode»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                  </button>
+                  <button class="block-move block-down" type="button" data-move="1" aria-label="Опустить блок «ZCode»">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M19 12l-7 7-7-7"></path></svg>
+                  </button>
                   <button class="switch" type="button" role="switch" data-block-toggle="zcode_card" aria-checked="true" aria-label="Показывать блок «ZCode»"></button>
                 </div>
               </div>
@@ -278,19 +295,19 @@
         <section class="panel" aria-labelledby="json-heading">
           <h2 id="json-heading" class="panel-title">Экспорт / импорт пресета (JSON)</h2>
           <div class="io-actions">
-            <button id="export-json" class="ghost-btn" type="button">Копировать JSON</button>
+            <button id="export-json" class="ghost-btn" type="button">Скопировать JSON</button>
+            <button id="import-apply" class="primary-btn" type="button">Применить</button>
           </div>
-          <textarea id="import-json" class="json-area" rows="6" spellcheck="false" aria-label="JSON пресета" placeholder='{"schema_version":1,"theme":"paper"}'></textarea>
-          <button id="import-apply" class="ghost-btn" type="button">Применить JSON</button>
+          <textarea id="import-json" class="json-area" rows="5" spellcheck="false" aria-label="JSON пресета" aria-describedby="json-status" placeholder='{"schema_version":1,"theme":"paper"}'></textarea>
           <p id="json-status" class="json-status" role="status"></p>
         </section>
       </section>
     </main>
 
     <footer class="settings-footer">
+      <p class="footer-note">Изменения применяются сразу</p>
       <button id="reset-appearance" class="reset-btn" type="button">Сбросить всё</button>
       <p id="settings-error" class="settings-error hidden" role="alert"></p>
-      <p class="footer-note">Изменения применяются сразу</p>
     </footer>
   </div>
 </body>

@@ -276,17 +276,23 @@
 
   /** Footer legend follows the backend thresholds, or shows a dash while the window is unknown. */
   function renderLegend(info) {
-    const ok = document.getElementById('legend-ok');
-    const warn = document.getElementById('legend-warn');
-    const risk = document.getElementById('legend-risk');
-    if (!ok && !warn && !risk) return;
-
     const known = Boolean(info && info.known);
     const yellow = known ? Math.round(info.yellowPct) : null;
     const red = known ? Math.round(info.redPct) : null;
-    if (ok) ok.textContent = known ? `0–${yellow}%` : '—';
-    if (warn) warn.textContent = known ? `${yellow}–${red}%` : '—';
-    if (risk) risk.textContent = known ? `${red}%+` : '—';
+    const text = {
+      ok: known ? `0–${yellow}%` : '—',
+      warn: known ? `${yellow}–${red}%` : '—',
+      risk: known ? `${red}%+` : '—',
+    };
+
+    // The footer legend is the Classic home of the scale; modern themes render
+    // the same thresholds inside the Context card (S1-048).
+    ['ok', 'warn', 'risk'].forEach(function (key) {
+      const footer = document.getElementById(`legend-${key}`);
+      if (footer) footer.textContent = text[key];
+      const inCard = document.getElementById(`zone-legend-${key}`);
+      if (inCard) inCard.textContent = text[key];
+    });
   }
 
   /** Show/hide the whole health-zone block (track + legend). */
@@ -298,22 +304,31 @@
   function renderEmpty(info, options) {
     const hasChat = Boolean(info.activeChat && info.activeChat.id);
     const chatTitle = info.activeChat && info.activeChat.title ? info.activeChat.title : '';
+    const card = document.getElementById('context-card');
+    if (card) card.classList.add('is-empty');
     document.getElementById('ctx-tokens').textContent = '—';
-    document.getElementById('ctx-token-sub').textContent = 'токенов';
-    document.getElementById('ctx-model').textContent = hasChat ? 'Ожидание ответа' : 'Ожидание диалога';
-    document.getElementById('ctx-workspace').textContent = hasChat ? 'Выбранный чат' : '—';
+    document.getElementById('ctx-token-sub').textContent = 'токены';
+    document.getElementById('ctx-model').textContent = hasChat
+      ? 'Ожидание ответа'
+      : 'Нет активной сессии';
+    const workspaceEl = document.getElementById('ctx-workspace');
+    workspaceEl.textContent = hasChat ? 'Выбранный чат' : '';
+    workspaceEl.classList.toggle('hidden', !hasChat);
     const snippetEl = document.getElementById('ctx-snippet');
     snippetEl.textContent = hasChat
       ? 'Ответьте модели, чтобы увидеть контекст'
-      : 'Отправь запрос в Antigravity';
+      : 'Отправьте запрос в Antigravity — данные появятся здесь';
     snippetEl.classList.remove('hidden');
 
     const alert = document.getElementById('ctx-alert');
     alert.classList.add('hidden');
 
+    // An empty scale, a 0 % marker and a lone "—" pill read as broken data, so
+    // the empty state keeps one message and one action (S1-044).
     const pill = document.getElementById('ctx-level-pill');
     pill.className = 'status-pill level-idle';
     pill.textContent = '—';
+    pill.classList.add('hidden');
 
     const ring = document.getElementById('ring-progress');
     ring.style.strokeDashoffset = CIRCUMFERENCE;
@@ -322,18 +337,15 @@
     document.getElementById('ring-satellite').style.opacity = '0';
 
     const material = document.getElementById('ctx-material');
-    material.textContent = hasChat ? (chatTitle || 'НОВЫЙ ЧАТ').toUpperCase() : 'НЕТ СЕССИИ';
+    material.textContent = hasChat ? chatTitle || 'Новый чат' : 'Нет сессии';
     material.title = chatTitle;
 
     const recent = document.getElementById('ctx-recent');
     recent.innerHTML = '';
     recent.classList.add('hidden');
 
-    if (options.showThresholds) {
-      renderZone(info);
-      renderLegend(info);
-    }
-    setZoneVisible(options.showThresholds);
+    renderLegend(info);
+    setZoneVisible(false);
   }
 
   function renderRecent(info, chatTitles, limit) {
@@ -375,6 +387,8 @@
   function render(context, status, activeChat, chatTitles = {}, options = {}) {
     const opts = normalizeOptions(options);
     const info = contextInfo(context, status, activeChat);
+    const card = document.getElementById('context-card');
+    if (card) card.classList.remove('is-empty');
     if (!info.cur) {
       renderEmpty(info, opts);
       return;
@@ -383,8 +397,16 @@
     const { cur, window, tokens, pct, level } = info;
     const material = document.getElementById('ctx-material');
     document.getElementById('ctx-tokens').textContent = formatTokens(tokens);
+    // "занято" (context pressure) vs "осталось" (quota balance): one meaning per
+    // widget, spelled out instead of a bare percentage (S1-047). The compact
+    // form factor has no room for the word inside the small ring.
+    const compactRing = document.documentElement.dataset.mode === 'compact';
     document.getElementById('ctx-token-sub').textContent =
-      window && typeof pct === 'number' ? `${Math.round(pct)}% из ${formatWindow(window)}` : 'окно не задано';
+      typeof pct === 'number'
+        ? compactRing
+          ? `${Math.round(pct)}%`
+          : `${Math.round(pct)}% занято`
+        : 'окно не задано';
 
     const ring = document.getElementById('ring-progress');
     const satellite = document.getElementById('ring-satellite');
@@ -408,16 +430,17 @@
 
     const chatTitle = info.activeChat && info.activeChat.title;
     material.textContent = chatTitle
-      ? chatTitle.toUpperCase()
+      ? chatTitle
       : window
-        ? `${prettyModel(cur.model).toUpperCase()} · ${formatWindow(window)}`
-        : prettyModel(cur.model).toUpperCase();
+        ? `${prettyModel(cur.model)} · ${formatWindow(window)}`
+        : prettyModel(cur.model);
     material.title = chatTitle || '';
 
     const model = document.getElementById('ctx-model');
     model.textContent = prettyModel(cur.model);
     model.title = cur.model || '';
     const age = shortAge(cur.updated_at);
+    document.getElementById('ctx-workspace').classList.remove('hidden');
     document.getElementById('ctx-workspace').textContent =
       `${cur.workspace ? `Проект: ${cur.workspace}` : 'Без проекта'}${age ? ` · ${age}` : ''}`;
     const snippetEl = document.getElementById('ctx-snippet');
@@ -428,18 +451,19 @@
     const pill = document.getElementById('ctx-level-pill');
     pill.className = `status-pill level-${level === 'unknown' ? 'idle' : level}`;
     pill.textContent =
-      level === 'red' ? 'РИСК' : level === 'yellow' ? 'ВНИМАНИЕ' : level === 'green' ? 'OK' : '—';
+      level === 'red' ? 'риск' : level === 'yellow' ? 'внимание' : level === 'green' ? 'норма' : '—';
+    pill.classList.toggle('hidden', level === 'unknown');
 
     const alert = document.getElementById('ctx-alert');
     if (!opts.showThresholds) {
       alert.classList.add('hidden');
     } else if (level === 'red') {
       alert.className = 'ctx-alert';
-      alert.textContent = 'Пора /compact · зона деградации';
+      alert.textContent = 'Пора /compact';
       alert.classList.remove('hidden');
     } else if (level === 'yellow') {
       alert.className = 'ctx-alert warn';
-      alert.textContent = 'Контекст растёт · возможна деградация';
+      alert.textContent = 'Контекст растёт';
       alert.classList.remove('hidden');
     } else {
       alert.classList.add('hidden');

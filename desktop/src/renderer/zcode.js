@@ -96,9 +96,25 @@
     const barFill = document.getElementById('zcode-bar-fill');
     const actions = document.getElementById('zcode-actions');
     const loginButton = document.getElementById('zcode-login');
+    const retryButton = document.getElementById('zcode-retry');
     const zcode = status && status.zcode;
 
     const needsLogin = !zcode || zcode.method !== 'api' || zcode.auth_ok === false;
+    // A transport/API failure has no login to offer: the same slot carries a
+    // retry action instead, so the cause never hides behind the fold (S1-045).
+    const needsRetry = Boolean(
+      zcode && zcode.method === 'api' && zcode.auth_ok !== false && (zcode.network_error || zcode.error_kind),
+    );
+    function setRetryVisible(visible) {
+      if (retryButton) {
+        retryButton.classList.toggle('hidden', !visible);
+        retryButton.title = visible
+          ? `Проверить ZCode ещё раз: ${errorReason(zcode)}`
+          : 'Проверить ZCode ещё раз';
+      }
+      if (chip) chip.classList.toggle('hidden', visible);
+    }
+    setRetryVisible(false);
     const actionsVisible =
       loginState === 'pending' || loginState === 'error' || (loginState === 'idle' && needsLogin);
     if (actions) actions.classList.toggle('hidden', !actionsVisible);
@@ -106,10 +122,10 @@
       loginButton.disabled = loginState === 'success';
       loginButton.textContent =
         loginState === 'pending'
-          ? 'ОТМЕНИТЬ ВХОД'
+          ? 'Отменить вход'
           : loginState === 'error'
-            ? 'ПОВТОРИТЬ ВХОД'
-            : 'ВОЙТИ В Z.AI';
+            ? 'Повторить вход'
+            : 'Войти в Z.ai';
     }
 
     if (bar) bar.classList.add('hidden');
@@ -119,16 +135,23 @@
       title.textContent = zcode && zcode.method === 'api' && zcode.plan_name ? `ZCode · ${zcode.plan_name}` : 'ZCode';
     }
     if (material) {
-      material.textContent = zcode ? (zcode.method === 'api' ? 'API' : zcode.method === 'disabled' ? 'OFF' : '—') : '—';
+      material.textContent = zcode
+        ? zcode.method === 'api'
+          ? 'Подключён'
+          : zcode.method === 'disabled'
+            ? 'Отключён'
+            : 'Нет данных'
+        : 'Нет данных';
     }
 
     if (loginState === 'pending') {
       if (subtitle) subtitle.textContent = 'Открыл браузер · завершите вход в Z.ai…';
       if (chip) {
         chip.className = 'zcode-chip chip-warn';
-        chip.textContent = 'ОЖИДАНИЕ';
+        chip.textContent = 'ожидание';
       }
-      if (material) material.textContent = 'OAUTH';
+      if (material) material.textContent = 'Вход';
+      setRetryVisible(false);
       return;
     }
 
@@ -136,9 +159,10 @@
       if (subtitle) subtitle.textContent = `Не удалось войти: ${loginMessage}`;
       if (chip) {
         chip.className = 'zcode-chip chip-error';
-        chip.textContent = 'ОШИБКА';
+        chip.textContent = 'ошибка';
       }
-      if (material) material.textContent = 'OAUTH';
+      if (material) material.textContent = 'Вход';
+      setRetryVisible(false);
       return;
     }
 
@@ -146,9 +170,10 @@
       if (subtitle) subtitle.textContent = loginMessage || 'Вход выполнен · обновляю баланс…';
       if (chip) {
         chip.className = 'zcode-chip chip-available';
-        chip.textContent = 'ВХОД OK';
+        chip.textContent = 'вход выполнен';
       }
-      if (material) material.textContent = 'API';
+      if (material) material.textContent = 'Подключён';
+      setRetryVisible(false);
       return;
     }
 
@@ -158,6 +183,7 @@
         chip.className = 'zcode-chip chip-idle';
         chip.textContent = 'нет данных';
       }
+      setRetryVisible(false);
       return;
     }
 
@@ -167,6 +193,7 @@
         chip.className = 'zcode-chip chip-idle';
         chip.textContent = 'не подключён';
       }
+      setRetryVisible(false);
       return;
     }
 
@@ -176,6 +203,7 @@
         chip.className = 'zcode-chip chip-warn';
         chip.textContent = 'нужен вход';
       }
+      setRetryVisible(false);
       return;
     }
 
@@ -195,7 +223,9 @@
     } else if (coupon.state === 'absent') {
       subtitleText = balance.text ? `${balance.text}${endsText}` : coupon.text;
     } else {
-      subtitleText = balance.text ? `${coupon.text} · ${balance.text}` : coupon.text;
+      // Short human status in the card; the technical reason stays in the
+      // tooltip instead of pushing the balance out of two lines (S1-046).
+      subtitleText = balance.text ? `Ваучер не проверен · ${balance.text}` : 'Ваучер не проверен';
     }
 
     if (subtitle) {
@@ -216,6 +246,7 @@
             ? 'нет ваучера'
             : 'проверка не удалась';
     }
+    setRetryVisible(needsRetry);
   }
 
   AGW.zcode = { render, setLogin, getLogin, describeCoupon, balanceInfo };

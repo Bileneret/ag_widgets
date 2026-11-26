@@ -112,6 +112,27 @@
     );
   }
 
+  /**
+   * A custom accent is both a fill and a text colour, so the readability tokens
+   * (`--on-accent`, `--accent-ink`, `--accent-bar`) are derived from the accent
+   * luminance and the resolved card surface (S1-018). Without a custom accent
+   * the theme's own contract values stay in charge.
+   */
+  function applyAccentTokens(theme, accent) {
+    const root = document.documentElement;
+    const math = AGW.themeMath;
+    const tokens = accent && math ? math.resolveAccentTokens(accent, theme) : null;
+    if (!tokens) {
+      root.style.removeProperty('--on-accent');
+      root.style.removeProperty('--accent-ink');
+      root.style.removeProperty('--accent-bar');
+      return;
+    }
+    root.style.setProperty('--on-accent', tokens.onAccent);
+    root.style.setProperty('--accent-ink', tokens.accentInk);
+    root.style.setProperty('--accent-bar', tokens.accentBar);
+  }
+
   /** Reorder the card rail and hide disabled blocks; order comes from settings. */
   function applyBlockLayout(blocks) {
     const byId = {};
@@ -200,6 +221,7 @@
       root.style.removeProperty('--glow');
       root.style.removeProperty('--glow-rgb');
     }
+    applyAccentTokens(theme, customAccent);
 
     applyBlockLayout(blocks);
 
@@ -388,8 +410,12 @@
         if (info && typeof info.tokens === 'number' && Number.isFinite(info.tokens)) {
           const pct =
             typeof info.pct === 'number' && Number.isFinite(info.pct) ? Math.round(info.pct) : null;
+          // A 160px pill has room for the token count only; the percentage
+          // reappears as soon as the window grows (S1-026).
+          const tight =
+            document.documentElement.dataset.mode === 'pill' && window.innerWidth < 180;
           ctxEl.textContent =
-            AGW.format.formatTokens(info.tokens) + (pct === null ? '' : ` · ${pct}%`);
+            AGW.format.formatTokens(info.tokens) + (pct === null || tight ? '' : ` · ${pct}%`);
         } else {
           ctxEl.textContent = '—';
         }
@@ -412,7 +438,7 @@
         fiveHour && typeof fiveHour.remaining_fraction === 'number' && Number.isFinite(fiveHour.remaining_fraction)
           ? AGW.format.clamp(fiveHour.remaining_fraction, 0, 1)
           : null;
-      quotaEl.textContent = fraction === null ? '—' : `5h ${Math.round(fraction * 100)}%`;
+      quotaEl.textContent = fraction === null ? '—' : `5 ч ${Math.round(fraction * 100)}%`;
     }
 
     if (zcodeEl) {
@@ -441,6 +467,25 @@
     AGW.quotas.render(state.status, blockOptionsFor('quotas_grid'));
     AGW.zcode.render(state.status, blockOptionsFor('zcode_card'));
     renderCompactStrip(state);
+    updateScrollAffordance();
+  }
+
+  /**
+   * The card rail is the only scroller. When it overflows, `data-scrollable`
+   * drives a thin visible scrollbar plus a bottom fade so the hidden rest of
+   * the summary is discoverable without guessing the wheel (S1-024, S1-025).
+   */
+  function updateScrollAffordance() {
+    const rail = document.getElementById('widget-cards');
+    if (!rail) return;
+    const maxScroll = rail.scrollHeight - rail.clientHeight;
+    const scrollable = maxScroll > 2;
+    rail.dataset.scrollable = scrollable ? 'true' : 'false';
+    // Content shorter than the rail is centred instead of leaving a 250px void
+    // under the empty/reordered state (S1-054).
+    rail.dataset.fits = scrollable ? 'false' : 'true';
+    rail.dataset.scrollEnd =
+      scrollable && rail.scrollTop >= maxScroll - 2 ? 'true' : 'false';
   }
 
   function render(state) {
@@ -494,6 +539,17 @@
 
   refreshButton.addEventListener('click', refreshNow);
 
+  // Actions inside the cards (the quota error retry) ask for a refresh
+  // through a DOM event so the view modules stay bridge-free.
+  document.addEventListener('agw:refresh', refreshNow);
+
+  const cardsRail = document.getElementById('widget-cards');
+  if (cardsRail) cardsRail.addEventListener('scroll', updateScrollAffordance, { passive: true });
+  window.addEventListener('resize', () => {
+    updateScrollAffordance();
+    if (stateLoaded) renderCompactStrip(latestState);
+  });
+
   const stripRefreshButton = document.getElementById('strip-refresh-btn');
   if (stripRefreshButton) stripRefreshButton.addEventListener('click', refreshNow);
   const stripSettingsButton = document.getElementById('strip-settings-btn');
@@ -502,6 +558,9 @@
       if (bridge && typeof bridge.openSettings === 'function') bridge.openSettings();
     });
   }
+
+  const retryButton = document.getElementById('zcode-retry');
+  if (retryButton) retryButton.addEventListener('click', refreshNow);
 
   const loginButton = document.getElementById('zcode-login');
   let loginAttempt = 0;

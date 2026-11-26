@@ -422,6 +422,14 @@
     if (typeof snapshot.effectiveTheme === 'string' && snapshot.effectiveTheme) {
       document.documentElement.dataset.theme = snapshot.effectiveTheme;
     }
+    // The accessibility scale must reach this window too (S1-036).
+    document.documentElement.style.setProperty('--font-scale', String(fontPercent / 100));
+    applyAccentTokens(
+      typeof snapshot.effectiveTheme === 'string' && snapshot.effectiveTheme
+        ? snapshot.effectiveTheme
+        : document.documentElement.dataset.theme,
+      normalizeHex(appearance.custom_accent),
+    );
 
     selectTheme(theme);
     selectVariant(variant);
@@ -471,6 +479,28 @@
     el.jsonStatus.textContent = message || '';
     el.jsonStatus.classList.toggle('is-error', Boolean(isError));
     el.jsonStatus.classList.toggle('is-ok', Boolean(message) && !isError);
+    if (el.importArea) {
+      el.importArea.setAttribute('aria-invalid', isError ? 'true' : 'false');
+    }
+  }
+
+  /**
+   * Readability tokens for a custom accent: the same maths the widget window
+   * uses, so the settings preview never shows a 2:1 badge (S1-018).
+   */
+  function applyAccentTokens(theme, accent) {
+    const root = document.documentElement;
+    const math = window.AGW && window.AGW.themeMath ? window.AGW.themeMath : null;
+    const tokens = accent && math ? math.resolveAccentTokens(accent, theme) : null;
+    if (!tokens) {
+      root.style.removeProperty('--on-accent');
+      root.style.removeProperty('--accent-ink');
+      root.style.removeProperty('--accent-bar');
+      return;
+    }
+    root.style.setProperty('--on-accent', tokens.onAccent);
+    root.style.setProperty('--accent-ink', tokens.accentInk);
+    root.style.setProperty('--accent-bar', tokens.accentBar);
   }
 
   // --- IPC patches ---------------------------------------------------------
@@ -783,8 +813,33 @@
     applyPatch(patch);
   }
 
+  /** Two-step reset: the destructive action asks once, in place, then forgets. */
+  const RESET_CONFIRM_MS = 4000;
+  const RESET_LABEL = 'Сбросить всё';
+  const RESET_CONFIRM_LABEL = 'Точно сбросить?';
+  let resetConfirmTimer = null;
+
+  function disarmReset() {
+    if (resetConfirmTimer) {
+      clearTimeout(resetConfirmTimer);
+      resetConfirmTimer = null;
+    }
+    if (!el.reset) return;
+    el.reset.classList.remove('is-confirming');
+    el.reset.textContent = RESET_LABEL;
+  }
+
+  function armReset() {
+    if (!el.reset) return;
+    el.reset.classList.add('is-confirming');
+    el.reset.textContent = RESET_CONFIRM_LABEL;
+    if (resetConfirmTimer) clearTimeout(resetConfirmTimer);
+    resetConfirmTimer = setTimeout(disarmReset, RESET_CONFIRM_MS);
+  }
+
   function resetAppearance() {
     if (!bridgeReady() || !el.reset) return;
+    disarmReset();
     el.reset.disabled = true;
     queue = queue
       .then(function () {
@@ -959,7 +1014,15 @@
       }));
     }
 
-    if (el.reset) el.reset.addEventListener('click', guard(resetAppearance));
+    if (el.reset) {
+      el.reset.addEventListener('click', guard(function () {
+        if (!el.reset.classList.contains('is-confirming')) {
+          armReset();
+          return;
+        }
+        resetAppearance();
+      }));
+    }
   }
 
   function showUnavailable() {

@@ -14,8 +14,8 @@
 
   function bucketLabel(bucket) {
     const id = String(bucket.id || '').toLowerCase();
-    const group = id.startsWith('gemini-') ? 'Gemini' : id.startsWith('3p-') ? 'Claude/GPT' : '';
-    const kind = bucket.kind === '5h' ? '5ч' : bucket.kind === 'weekly' ? 'неделя' : bucket.id || 'квота';
+    const group = id.startsWith('gemini-') ? 'Gemini' : id.startsWith('3p-') ? 'Claude / GPT' : '';
+    const kind = bucket.kind === '5h' ? '5 ч' : bucket.kind === 'weekly' ? '7 дн' : bucket.id || 'квота';
     return group ? `${group} · ${kind}` : kind;
   }
 
@@ -42,8 +42,7 @@
     let fillClass = 'bar-fill';
     if (fraction === null) fillClass += ' unknown';
     else if (fraction <= 0.001) fillClass += ' empty';
-    else if (fraction < 0.2) fillClass += ' low';
-    else if (fraction < 0.45) fillClass += ' mid';
+    else if (fraction <= 0.15) fillClass += ' low';
     else if (isThirdParty) fillClass += ' third';
 
     return {
@@ -71,6 +70,34 @@
     };
   }
 
+  /**
+   * Error callout: one short human line plus an in-place retry. The technical
+   * reason stays in the tooltip instead of pushing the card past the fold
+   * (S1-046).
+   */
+  function renderError(errorBox, error) {
+    if (!errorBox) return;
+    errorBox.textContent = '';
+    if (!error) {
+      errorBox.removeAttribute('title');
+      errorBox.classList.add('hidden');
+      return;
+    }
+
+    const message = document.createElement('span');
+    message.textContent = 'Не удалось обновить лимиты';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'quota-retry';
+    retry.textContent = 'Повторить';
+    retry.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('agw:refresh'));
+    });
+    errorBox.append(message, retry);
+    errorBox.title = error;
+    errorBox.classList.remove('hidden');
+  }
+
   function render(status, options = {}) {
     const opts = options && typeof options === 'object' && !Array.isArray(options) ? options : {};
     const showGemini = opts.show_gemini !== false;
@@ -89,12 +116,8 @@
       tier.textContent = tierView.text;
       if (tierView.title) tier.title = tierView.title;
       else tier.removeAttribute('title');
-      tier.classList.toggle('has-error', tierView.hasError);
     }
-    if (errorBox) {
-      errorBox.textContent = error ? `Квоты не обновились: ${error}` : '';
-      errorBox.classList.toggle('hidden', !error);
-    }
+    renderError(errorBox, error);
 
     if (!list) return;
 
@@ -169,10 +192,11 @@
 
       const reset = document.createElement('span');
       reset.className = 'quota-reset';
-      if (showCountdown) reset.textContent = formatCountdown(bucket.reset_time) || '—';
       const percentEl = document.createElement('b');
-      percentEl.textContent = ` ${view.percentText}`;
+      percentEl.textContent = view.percentText;
       reset.appendChild(percentEl);
+      const countdown = showCountdown ? formatCountdown(bucket.reset_time) : '';
+      if (countdown) reset.append(` · ${countdown}`);
 
       const indexEl = document.createElement('span');
       indexEl.className = 'quota-index';
