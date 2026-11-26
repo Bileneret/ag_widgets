@@ -214,6 +214,7 @@ data class DashStrings(
     val surfaceDescriptionContext: String,
     val addWidget: String,
     val headerSubtitleA11y: String,
+    val scannerUnavailable: String,
 )
 
 /** [title]. */
@@ -258,6 +259,12 @@ data class ChannelStrings(
     val pairingCodeLabel: String,
     val resetE2eTitle: String,
     val resetE2eBody: String,
+    val scanQr: String,
+    val summaryE2e: String,
+    val summaryPlain: String,
+    val emptyHint: String,
+    val manualShow: String,
+    val manualHide: String,
 )
 
 /** [title]. */
@@ -593,6 +600,7 @@ data class AgStrings(
     val dashTopicCleared: String get() = dash.topicCleared
     val dashTopicSaved: String get() = dash.topicSaved
     val dashE2eKeyReset: String get() = dash.e2eKeyReset
+    val dashScannerUnavailable: String get() = dash.scannerUnavailable
     val dashTokenEmpty: String get() = dash.tokenEmpty
     val dashTokenSaved: String get() = dash.tokenSaved
     val dashFooterZcodeOnly: String get() = dash.footerZcodeOnly
@@ -680,6 +688,12 @@ data class AgStrings(
     val chPairingCodeLabel: String get() = channel.pairingCodeLabel
     val chResetE2eTitle: String get() = channel.resetE2eTitle
     val chResetE2eBody: String get() = channel.resetE2eBody
+    val chScanQr: String get() = channel.scanQr
+    val chSummaryE2e: String get() = channel.summaryE2e
+    val chSummaryPlain: String get() = channel.summaryPlain
+    val chEmptyHint: String get() = channel.emptyHint
+    val chManualShow: String get() = channel.manualShow
+    val chManualHide: String get() = channel.manualHide
 
     // ZCode access card
     val accDescription: String get() = access.description
@@ -985,6 +999,7 @@ val RuStrings: AgStrings = AgStrings(
         topicCleared = "Тема очищена",
         topicSaved = "Тема сохранена",
         e2eKeyReset = "E2E-ключ сброшен",
+        scannerUnavailable = "Сканер QR недоступен — вставьте ссылку сопряжения вручную",
         tokenEmpty = "Токен пуст",
         tokenSaved = "Токен сохранён",
         footerZcodeOnly = "Токен ZCode хранится только на телефоне",
@@ -1072,6 +1087,12 @@ val RuStrings: AgStrings = AgStrings(
         pairingCodeLabel = "Код agw://pair?...",
         resetE2eTitle = "Сбросить E2E-ключ?",
         resetE2eBody = "Телефон перестанет расшифровывать сообщения, пока вы не отсканируете новый QR-код.",
+        scanQr = "Сканировать QR-код с ПК",
+        summaryE2e = "Канал: {topic} · E2E включён",
+        summaryPlain = "Канал: {topic} · без E2E",
+        emptyHint = "Откройте Настройки → Синхронизация на ПК и отсканируйте QR-код.",
+        manualShow = "Настроить вручную",
+        manualHide = "Скрыть ручные настройки",
     ),
     access = AccessStrings(
         description = "Прямой опрос zcode.z.ai каждые 15 минут: ваучеры на 300–500M токенов и баланс приходят даже при выключенном компьютере.",
@@ -1356,6 +1377,7 @@ val EnStrings: AgStrings = AgStrings(
         topicCleared = "Topic cleared",
         topicSaved = "Topic saved",
         e2eKeyReset = "E2E key reset",
+        scannerUnavailable = "The QR scanner is unavailable — paste the pairing link manually",
         tokenEmpty = "Token is empty",
         tokenSaved = "Token saved",
         footerZcodeOnly = "The ZCode token is stored on this phone only",
@@ -1443,6 +1465,12 @@ val EnStrings: AgStrings = AgStrings(
         pairingCodeLabel = "agw://pair?... code",
         resetE2eTitle = "Reset E2E key?",
         resetE2eBody = "The phone will stop decrypting messages until you scan a new QR code.",
+        scanQr = "Scan a QR code from the PC",
+        summaryE2e = "Channel: {topic} · E2E on",
+        summaryPlain = "Channel: {topic} · no E2E",
+        emptyHint = "Open Settings → Sync on the PC and scan the QR code.",
+        manualShow = "Configure manually",
+        manualHide = "Hide manual settings",
     ),
     access = AccessStrings(
         description = "Direct polling of zcode.z.ai every 15 minutes: coupons for 300–500M tokens and your balance arrive even when the computer is off.",
