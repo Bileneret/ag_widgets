@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import dev.agwidgets.ui.i18n.LocalStrings
 import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
@@ -46,17 +47,18 @@ internal fun ChannelCard(
     onResetE2eKey: () -> Unit,
 ) {
     val colors = AgTheme.colors
+    val s = LocalStrings.current
     var showPairingInput by remember { mutableStateOf(false) }
     var pairingText by remember { mutableStateOf("") }
     var showResetConfirm by remember { mutableStateOf(false) }
 
     GlassCard {
         SectionHeader(
-            serial = "02 / CHANNEL",
-            title = "Antigravity",
+            serial = s.serialChannel,
+            title = s.brandAntigravity,
             chipText = when {
                 hasE2eKey -> "E2E"
-                topic.isBlank() -> "Не настроен"
+                topic.isBlank() -> s.chNotConfigured
                 else -> "ntfy"
             },
             chipColor = when {
@@ -66,8 +68,7 @@ internal fun ChannelCard(
             },
         )
         Text(
-            text = "Квоты 5 ч и недели, контекст ПК и статус ZCode приходят с компьютера " +
-                "через приватный ntfy-канал.",
+            text = s.chDescription,
             style = AgType.body,
             color = colors.secondary,
         )
@@ -75,7 +76,7 @@ internal fun ChannelCard(
             value = topic,
             onValueChange = onTopicChange,
             singleLine = true,
-            label = { Text("Тема ntfy", style = AgType.caption) },
+            label = { Text(s.chTopicLabel, style = AgType.caption) },
             textStyle = AgType.body,
             shape = RoundedCornerShape(AgDim.ControlRadius),
             colors = glassFieldColors(colors.glow),
@@ -85,7 +86,7 @@ internal fun ChannelCard(
             value = server,
             onValueChange = onServerChange,
             singleLine = true,
-            label = { Text("Сервер ntfy", style = AgType.caption) },
+            label = { Text(s.chServerLabel, style = AgType.caption) },
             placeholder = { Text("https://ntfy.sh", style = AgType.caption) },
             textStyle = AgType.body,
             shape = RoundedCornerShape(AgDim.ControlRadius),
@@ -93,16 +94,16 @@ internal fun ChannelCard(
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            text = "Только https://. Пустое значение вернёт https://ntfy.sh",
+            text = s.chServerHint,
             style = AgType.caption,
             color = colors.muted,
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(AgDim.ControlGap),
         ) {
-            // Field-local save is a quiet action; "Обновить" is tonal so the one
-            // filled primary on the screen stays "Войти в Z.ai".
-            AgGhostButton(text = "Сохранить", onClick = onSave)
+            // Field-local save is a quiet action; the refresh is tonal so the one
+            // filled primary on the screen stays "Sign in to Z.ai".
+            AgGhostButton(text = s.commonSave, onClick = onSave)
             FilledTonalButton(
                 onClick = onRefresh,
                 enabled = !isRefreshing,
@@ -114,7 +115,7 @@ internal fun ChannelCard(
                 ),
             ) {
                 Text(
-                    text = if (isRefreshing) "Обновляю…" else "Обновить",
+                    text = if (isRefreshing) s.chRefreshing else s.commonRefresh,
                     style = AgType.body,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -123,12 +124,12 @@ internal fun ChannelCard(
         }
         // Paste-by-hand fallback for phones that cannot open the agw:// link.
         AgGhostButton(
-            text = "Вставить код сопряжения",
+            text = s.chPastePairing,
             onClick = { showPairingInput = true },
         )
         if (hasE2eKey) {
             AgGhostButton(
-                text = "Сбросить E2E-ключ",
+                text = s.chResetE2eKey,
                 onClick = { showResetConfirm = true },
                 contentColor = colors.rose,
             )
@@ -149,14 +150,14 @@ internal fun ChannelCard(
             containerColor = colors.card,
             titleContentColor = colors.text,
             textContentColor = colors.secondary,
-            title = { Text("Вставить код сопряжения", style = AgType.title) },
+            title = { Text(s.chPastePairingTitle, style = AgType.title) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap)) {
                     OutlinedTextField(
                         value = pairingText,
                         onValueChange = { pairingText = it },
                         minLines = 2,
-                        label = { Text("Код agw://pair?...", style = AgType.caption) },
+                        label = { Text(s.chPairingCodeLabel, style = AgType.caption) },
                         textStyle = AgType.body,
                         shape = RoundedCornerShape(AgDim.ControlRadius),
                         colors = glassFieldColors(colors.glow),
@@ -180,11 +181,11 @@ internal fun ChannelCard(
                         contentColor = colors.onGlow,
                     ),
                 ) {
-                    Text("Далее", style = AgType.body)
+                    Text(s.commonNext, style = AgType.body)
                 }
             },
             dismissButton = {
-                AgGhostButton(text = "Отмена", onClick = { showPairingInput = false })
+                AgGhostButton(text = s.commonCancel, onClick = { showPairingInput = false })
             },
         )
     }
@@ -196,11 +197,10 @@ internal fun ChannelCard(
             containerColor = colors.card,
             titleContentColor = colors.text,
             textContentColor = colors.secondary,
-            title = { Text("Сбросить E2E-ключ?", style = AgType.title) },
+            title = { Text(s.chResetE2eTitle, style = AgType.title) },
             text = {
                 Text(
-                    text = "Телефон перестанет расшифровывать сообщения, пока вы " +
-                        "не отсканируете новый QR-код.",
+                    text = s.chResetE2eBody,
                     style = AgType.body,
                     color = colors.secondary,
                 )
@@ -218,11 +218,11 @@ internal fun ChannelCard(
                         contentColor = Color.White,
                     ),
                 ) {
-                    Text("Сбросить", style = AgType.body)
+                    Text(s.commonReset, style = AgType.body)
                 }
             },
             dismissButton = {
-                AgGhostButton(text = "Отмена", onClick = { showResetConfirm = false })
+                AgGhostButton(text = s.commonCancel, onClick = { showResetConfirm = false })
             },
         )
     }

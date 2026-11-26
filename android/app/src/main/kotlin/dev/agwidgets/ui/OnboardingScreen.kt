@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import dev.agwidgets.R
 import dev.agwidgets.ui.components.GlassCard
 import dev.agwidgets.ui.components.SectionHeader
+import dev.agwidgets.ui.i18n.LocalStrings
 import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
@@ -43,6 +44,7 @@ internal fun OnboardingScreen(
     onChooseZcode: () -> Unit,
 ) {
     val colors = AgTheme.colors
+    val s = LocalStrings.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -78,7 +80,7 @@ internal fun OnboardingScreen(
                 if (colors.isClassic) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "ANTIGRAVITY · 001",
+                        text = s.brandAntigravity001,
                         style = AgType.caption.copy(
                             fontFamily = FontFamily.Monospace,
                             letterSpacing = 1.1.sp,
@@ -90,15 +92,15 @@ internal fun OnboardingScreen(
         }
 
         Text(
-            text = "Как вы будете пользоваться?",
+            text = s.onbQuestion,
             style = AgType.title,
             color = colors.text,
         )
         Text(
             text = if (zcodeAvailable) {
-                "Режим можно сменить позже в разделе «Диагностика»."
+                s.onbModeChangeHint
             } else {
-                "AG Context работает вместе с коллектором на компьютере."
+                s.onbContextRequiresPc
             },
             style = AgType.body,
             color = colors.secondary,
@@ -107,14 +109,13 @@ internal fun OnboardingScreen(
         if (zcodeAvailable) {
             GlassCard {
                 SectionHeader(
-                    serial = "01 / ZCODE",
-                    title = "Только ZCode",
-                    chipText = "Без ПК",
+                    serial = s.serialZcode,
+                    title = s.onbZcodeOnly,
+                    chipText = s.onbNoPc,
                     chipColor = colors.glow,
                 )
                 Text(
-                    text = "Ваучеры на 300–500M токенов и баланс. Компьютер не нужен: " +
-                        "приложение само проверяет ваучеры.",
+                    text = s.onbZcodeDescription,
                     style = AgType.body,
                     color = colors.secondary,
                 )
@@ -129,25 +130,23 @@ internal fun OnboardingScreen(
                         contentColor = colors.onGlow,
                     ),
                 ) {
-                    Text(text = "Выбрать ZCode", style = AgType.body)
+                    Text(text = s.onbChooseZcode, style = AgType.body)
                 }
             }
         }
 
         GlassCard {
             SectionHeader(
-                serial = if (zcodeAvailable) "02 / PC" else "01 / PC",
-                title = "С компьютером",
-                chipText = "Antigravity",
+                serial = if (zcodeAvailable) s.serialPcSecond else s.serialPcFirst,
+                title = s.onbWithPc,
+                chipText = s.brandAntigravity,
                 chipColor = colors.violet,
             )
             Text(
                 text = if (zcodeAvailable) {
-                    "Контекст открытого чата Antigravity, лимиты 5 ч и недели и ZCode. " +
-                        "Нужен компьютер с установленным коллектором."
+                    s.onbPcDescriptionFull
                 } else {
-                    "Контекст открытого чата Antigravity и лимиты 5 ч и недели. " +
-                        "Нужен компьютер с установленным коллектором."
+                    s.onbPcDescriptionContext
                 },
                 style = AgType.body,
                 color = colors.secondary,
@@ -160,15 +159,15 @@ internal fun OnboardingScreen(
                 shape = RoundedCornerShape(AgDim.ControlRadius),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.text),
             ) {
-                Text(text = "Выбрать ПК", style = AgType.body)
+                Text(text = s.onbChoosePc, style = AgType.body)
             }
         }
 
         Text(
             text = if (zcodeAvailable) {
-                "AG Widgets · Antigravity + ZCode"
+                s.onbFooterFull
             } else {
-                "AG Context · только Antigravity"
+                s.onbFooterContext
             },
             style = if (colors.isClassic) {
                 AgType.caption.copy(
