@@ -1365,16 +1365,6 @@ html[data-dark="false"] .icon-sun,
   display: none;
 }
 
-[data-theme^="classic"] .serial,
-[data-theme^="classic"] .brand-sub,
-[data-theme^="classic"] .footer-brand,
-[data-theme^="classic"] .footer-note,
-[data-theme^="classic"] .quota-index,
-[data-theme^="classic"] .orbit,
-[data-theme^="classic"] .reticle {
-  display: inline;
-}
-
 [data-theme^="classic"] .card {
   border-radius: 10px;
   border-bottom-right-radius: 0;

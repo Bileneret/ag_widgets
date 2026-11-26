@@ -47,6 +47,7 @@ internal fun ZCodeDashboardCard(
     val totalSafe = total?.takeIf { it > 0L }
     val planName = zcode?.planName?.takeIf { it.isNotBlank() }
     val showLogin = zcode == null ||
+        zcode.method == "disabled" ||
         zcode.authOk == false ||
         (zcode.isCouponUnknown && zcode.errorKind == "auth_expired")
 

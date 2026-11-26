@@ -245,20 +245,22 @@ function createWindow() {
 }
 
 /**
- * Place the Settings window next to the widget: to the right when it fits the
- * primary work area, otherwise to the left, clamped so both stay visible.
+ * Place the Settings window next to the widget on its current display: to the
+ * right when it fits the display work area, otherwise to the left, clamped.
  */
 function settingsWindowPosition() {
-  const area = screen.getPrimaryDisplay().workArea;
   const main = getWindow();
-  const bounds = main
-    ? main.getBounds()
-    : {
-        x: area.x + area.width - WINDOW_WIDTH - 24,
-        y: area.y + 24,
-        width: WINDOW_WIDTH,
-        height: WINDOW_HEIGHT,
-      };
+  const mainBounds = main ? main.getBounds() : null;
+  const display = mainBounds
+    ? screen.getDisplayMatching(mainBounds)
+    : screen.getPrimaryDisplay();
+  const area = display.workArea;
+  const bounds = mainBounds || {
+    x: area.x + area.width - WINDOW_WIDTH - 24,
+    y: area.y + 24,
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
+  };
   const rightX = bounds.x + bounds.width + SETTINGS_GAP;
   const leftX = bounds.x - SETTINGS_WIDTH - SETTINGS_GAP;
   const fitsRight = rightX + SETTINGS_WIDTH <= area.x + area.width;
