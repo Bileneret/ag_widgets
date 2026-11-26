@@ -8,6 +8,7 @@ const zcodeAuth = require('./zcode-auth');
 const pairing = require('./pairing');
 const windowApi = require('./window');
 const appearance = require('./appearance');
+const { copyTextToClipboard } = require('./clipboard');
 const { logError } = require('./logger');
 const { refreshMenu, showContextMenu, loginItemOptions } = require('./tray');
 
@@ -196,6 +197,11 @@ function registerIpc() {
   );
 
   ipcMain.handle(
+    'agw:copy-text',
+    fromTrustedWindow((_event, text) => copyTextToClipboard(text)),
+  );
+
+  ipcMain.handle(
     'agw:open-settings',
     fromTrustedWindow(() => {
       windowApi.openSettingsWindow();
@@ -308,4 +314,9 @@ function registerIpc() {
   );
 }
 
-module.exports = { registerIpc, buildSettingsSnapshot, EXTERNAL_ACTIONS };
+module.exports = {
+  registerIpc,
+  buildSettingsSnapshot,
+  EXTERNAL_ACTIONS,
+  copyTextToClipboard,
+};

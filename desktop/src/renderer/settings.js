@@ -774,23 +774,43 @@
     if (el.syncUri) el.syncUri.textContent = '';
   }
 
-  function copyToClipboard(text, okMessage) {
+  /**
+   * Copy through the main process when the Electron bridge is present
+   * (`navigator.clipboard` is rejected in the sandboxed `file://` window),
+   * and fall back to the Web API when the page is opened in a plain browser.
+   */
+  async function writeClipboardText(text) {
+    try {
+      if (hasBridge() && bridge && typeof bridge.copyText === 'function') {
+        const res = await bridge.copyText(text);
+        // No Web fallback here: it is guaranteed to fail in this window.
+        return Boolean(res && res.ok === true);
+      }
+    } catch (error) {
+      return false;
+    }
+    try {
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+        return false;
+      }
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async function copyToClipboard(text, okMessage) {
     if (!text) {
       setSyncStatus('Данные сопряжения ещё не загружены.', true);
       return;
     }
-    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-      setSyncStatus('Буфер обмена недоступен в этом окне.', true);
-      return;
+    const ok = await writeClipboardText(text);
+    if (ok) {
+      setSyncStatus(okMessage, false);
+    } else {
+      setSyncStatus('Не удалось скопировать в буфер обмена.', true);
     }
-    navigator.clipboard.writeText(text).then(
-      function () {
-        setSyncStatus(okMessage, false);
-      },
-      function () {
-        setSyncStatus('Не удалось скопировать в буфер обмена.', true);
-      },
-    );
   }
 
   function disarmRotate() {
@@ -1180,13 +1200,10 @@
         return;
       }
     }
-    try {
-      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
-        throw new Error('clipboard unavailable');
-      }
-      await navigator.clipboard.writeText(json);
+    const ok = await writeClipboardText(json);
+    if (ok) {
       setJsonStatus('JSON скопирован в буфер обмена', false);
-    } catch (error) {
+    } else {
       if (el.importArea) el.importArea.value = json;
       setJsonStatus('Скопируйте JSON из поля ниже', false);
     }
