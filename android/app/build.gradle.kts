@@ -120,6 +120,14 @@ kotlin {
   jvmToolchain(17)
 }
 
+// `local.properties` feeds BuildConfig.AGW_TOPIC; without this input Gradle can
+// consider the generated BuildConfig up to date and silently drop a new topic.
+tasks.matching { it.name.startsWith("generate") && it.name.endsWith("BuildConfig") }.configureEach {
+  inputs.file(rootProject.layout.projectDirectory.file("local.properties"))
+    .withPropertyName("localProperties")
+    .optional()
+}
+
 dependencies {
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
