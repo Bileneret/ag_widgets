@@ -31,6 +31,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -76,6 +77,7 @@ import dev.agwidgets.ui.components.HeroCard
 import dev.agwidgets.ui.components.InstalledWidgetInfo
 import dev.agwidgets.ui.components.SurfaceCard
 import dev.agwidgets.ui.components.ZCodeDashboardCard
+import dev.agwidgets.ui.components.glassFieldColors
 import dev.agwidgets.ui.theme.AgDim
 import dev.agwidgets.ui.theme.AgTheme
 import dev.agwidgets.ui.theme.AgType
@@ -220,6 +222,9 @@ internal fun AgWidgetsScreen(
     var notificationsDenied by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var installedWidgets by remember { mutableStateOf<List<InstalledWidgetInfo>>(emptyList()) }
+    // The paste-code dialog lives at the root so onboarding and Settings share
+    // one implementation (and one fallback when the QR scanner is unavailable).
+    var showPasteDialog by remember { mutableStateOf(false) }
 
     // A scanned agw://pair link is held here until the user confirms or closes
     // the dialog; the dialog itself is drawn above the onboarding branch.
@@ -230,6 +235,22 @@ internal fun AgWidgetsScreen(
     fun dismissPairing() {
         pairingRequest = null
         onConsumePairingUri()
+    }
+
+    // Play Services owns the camera preview, so there is no permission dance
+    // here: success goes straight to the confirm dialog, cancel is silent and a
+    // missing scanner falls back to pasting the link by hand.
+    fun handleScanQr() {
+        QrScanner.scanQr(context) { result ->
+            when (result) {
+                is QrScanResult.Success -> pairingRequest = result.rawValue
+                QrScanResult.Cancelled -> Unit
+                is QrScanResult.Unavailable -> {
+                    statusMessage = "Сканер QR недоступен — вставьте ссылку сопряжения вручную"
+                    showPasteDialog = true
+                }
+            }
+        }
     }
 
     val oauthState by OAuthSessionHolder.state.collectAsState()
@@ -561,6 +582,7 @@ internal fun AgWidgetsScreen(
                     mode = StatusStore.MODE_PC
                     if (topic.isNotBlank()) refresh()
                 },
+                onScanQr = { handleScanQr() },
                 onChooseZcode = {
                     StatusStore.setMode(context, StatusStore.MODE_ZCODE)
                     mode = StatusStore.MODE_ZCODE
@@ -677,7 +699,8 @@ internal fun AgWidgetsScreen(
                                         }
                                     },
                                     onRefresh = { refresh() },
-                                    onRequestPairing = { pairingRequest = it },
+                                    onScanQr = { handleScanQr() },
+                                    onPasteCode = { showPasteDialog = true },
                                     onResetE2eKey = {
                                         StatusStore.setE2eKey(context, null)
                                         hasE2eKey = false
@@ -762,6 +785,16 @@ internal fun AgWidgetsScreen(
 
         // Drawn above the onboarding/dashboard branch on purpose: a QR code
         // scanned on the very first run must be usable before a mode is chosen.
+        if (showPasteDialog) {
+            PairingPasteDialog(
+                onDismiss = { showPasteDialog = false },
+                onConfirm = { value ->
+                    showPasteDialog = false
+                    if (value.isNotBlank()) pairingRequest = value
+                },
+            )
+        }
+
         pairingRequest?.let { uri ->
             PairingConfirmDialog(
                 uri = uri,
@@ -788,6 +821,66 @@ internal fun AgWidgetsScreen(
             )
         }
     }
+}
+
+/**
+ * Manual entry for an `agw://pair` link: used when the phone has no Play
+ * Services scanner, and by "Вставить код сопряжения" in the settings card.
+ *
+ * The raw text is only trimmed and forwarded; parsing happens in
+ * [PairingConfirmDialog] so a typo is reported there, not here.
+ */
+@Composable
+private fun PairingPasteDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val colors = AgTheme.colors
+    var text by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(AgDim.Page),
+        containerColor = colors.card,
+        titleContentColor = colors.text,
+        textContentColor = colors.secondary,
+        title = { Text("Вставить код сопряжения", style = AgType.title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AgDim.ControlGap)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    minLines = 2,
+                    label = { Text("Код agw://pair?...", style = AgType.caption) },
+                    textStyle = AgType.body,
+                    shape = RoundedCornerShape(AgDim.ControlRadius),
+                    colors = glassFieldColors(colors.glow),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val value = text.trim()
+                    text = ""
+                    onConfirm(value)
+                },
+                enabled = text.isNotBlank(),
+                shape = RoundedCornerShape(AgDim.ControlRadius),
+                modifier = Modifier.height(AgDim.MinTouch),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.glow,
+                    contentColor = colors.onGlow,
+                ),
+            ) {
+                Text("Далее", style = AgType.body)
+            }
+        },
+        dismissButton = {
+            AgGhostButton(text = "Отмена", onClick = onDismiss)
+        },
+    )
 }
 
 /**
